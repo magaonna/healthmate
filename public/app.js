@@ -1,4 +1,4 @@
-/* 동네 헬스메이트 – SPA (vanilla JS) */
+/* 짐짝(GYMJJAK) – SPA (vanilla JS) */
 (() => {
   const $app = document.getElementById('app');
   const $modal = document.getElementById('modal');
@@ -19,6 +19,8 @@
       const err = new Error(data.error || '요청에 실패했습니다.');
       Object.assign(err, data, { status: res.status });
       if (res.status === 401 && !path.startsWith('/api/auth') && path !== '/api/me') { state.me = null; location.hash = '#/login'; }
+      if (data.code === 'SUSPENDED') { state.me = null; location.hash = '#/suspended'; }
+      if (data.code === 'NEED_CONSENT') location.hash = '#/welcome';
       throw err;
     }
     return data;
@@ -69,6 +71,7 @@
     state.socket.on('chat:read', ({ roomId }) => {
       if (state.chatRoomId === roomId) document.querySelectorAll('.msg.mine .unread').forEach((el) => el.remove());
     });
+    state.socket.on('rooms:changed', () => { if (/^#\/chats?/.test(location.hash)) route(); refreshBadges(); });
     let typingTimer;
     state.socket.on('chat:typing', ({ roomId }) => {
       const el = document.getElementById('typing');
@@ -96,7 +99,11 @@
   const routes = [
     [/^#\/login$/, viewAuth.bind(null, 'login'), { public: true }],
     [/^#\/signup$/, viewAuth.bind(null, 'signup'), { public: true }],
+    [/^#\/policy\/(terms|privacy|location)$/, viewPolicy, { any: true }],
+    [/^#\/suspended$/, viewSuspended, { noVerify: true }],
     [/^#\/welcome$/, viewWelcome, { noVerify: true }],
+    [/^#\/blocks$/, viewBlocks, { noVerify: true }],
+    [/^#\/admin$/, viewAdmin, { noVerify: true }],
     [/^#\/verify$/, viewVerify, { noVerify: true }],
     [/^#\/me$/, viewMe, { noVerify: true }],
     [/^#\/notes$/, viewNotes],
@@ -111,13 +118,23 @@
     state.chatRoomId = null;
     const match = routes.find(([re]) => re.test(hash)) || routes[routes.length - 1];
     const [re, fn, opts = {}] = match;
-    if (!opts.public) {
-      if (!state.me && !(await loadMe())) { location.hash = '#/login'; return; }
-      connectSocket(); refreshBadges();
+    if (opts.any) {
+      if (!state.me) await loadMe();
+    } else if (!opts.public) {
+      // 정지 상태는 관리자가 해제할 수 있으므로 매번 다시 확인
+      if ((!state.me || state.me.suspended) && !(await loadMe())) { location.hash = '#/login'; return; }
+      // 정지된 계정 → 안내 화면, 약관 미동의(소셜 첫 가입·약관 변경) → 동의 화면
+      if (state.me.suspended) { if (fn !== viewSuspended) { location.hash = '#/suspended'; return; } }
+      else if (fn === viewSuspended) { location.hash = '#/'; return; }
+      else if (!state.me.termsAgreed) { if (fn !== viewWelcome) { location.hash = '#/welcome'; return; } }
+      if (!state.me.suspended && state.me.termsAgreed) { connectSocket(); refreshBadges(); }
       if (!opts.noVerify && !state.me.location?.verified) { location.hash = '#/verify'; return; }
     } else if (state.me || await loadMe()) { location.hash = '#/'; return; }
     const params = hash.match(re)?.slice(1) || [];
-    try { await fn(...params); } catch (e) { console.error(e); toast(e.message); }
+    try { await fn(...params); } catch (e) {
+      console.error(e);
+      if (!['SUSPENDED', 'NEED_CONSENT', 'NEED_VERIFY'].includes(e.code) && e.status !== 401) toast(e.message); // 화면 이동으로 처리되는 오류는 안내 생략
+    }
   }
   window.addEventListener('hashchange', route);
 
@@ -140,14 +157,15 @@
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
           <div class="logo">🏋️</div>
-          <h1>동네 헬스메이트</h1>
-          <div class="muted">우리 동네에서 같이 운동할 헬스메이트를 찾아보세요</div>
+          <h1 class="brand-title">짐짝 <small>GYMJJAK</small></h1>
+          <div class="muted">우리 동네에서 같이 운동할 헬스메이트 찾기</div>
         </div>
         <form class="card stack" id="authForm">
           <label class="field"><span>이메일</span><input type="email" name="email" required autocomplete="email"></label>
           <label class="field"><span>비밀번호${signup ? ' (8자 이상)' : ''}</span><input type="password" name="password" required minlength="${signup ? 8 : 1}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
           ${signup ? '<label class="field"><span>닉네임</span><input type="text" name="nickname" required minlength="2" maxlength="20"></label>' : ''}
-          <button class="btn primary block" type="submit">${signup ? '회원가입' : '로그인'}</button>
+          ${signup ? agreementsHtml() : ''}
+          <button class="btn primary block" type="submit">${signup ? '동의하고 가입하기' : '로그인'}</button>
           <div class="small muted" style="text-align:center">
             ${signup ? '이미 계정이 있나요? <a class="link" href="#/login">로그인</a>' : '처음이신가요? <a class="link" href="#/signup">회원가입</a>'}
           </div>
@@ -156,43 +174,135 @@
             ${providers.includes('kakao') ? `<a class="btn block social kakao" href="/auth/kakao">${KAKAO_ICON}카카오로 시작하기</a>` : ''}
             ${providers.includes('google') ? `<a class="btn block social google" href="/auth/google">${GOOGLE_ICON}Google로 시작하기</a>` : ''}` : ''}
         </form>
+        ${policyFooter()}
       </div></div>`));
-    document.getElementById('authForm').addEventListener('submit', async (e) => {
+    const form = document.getElementById('authForm');
+    if (signup) bindAgreements(form);
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = e.target.querySelector('button'); btn.disabled = true;
+      if (signup && !agreementsOk(form)) return toast('필수 약관에 모두 동의해 주세요.');
+      const btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
+      const fd = Object.fromEntries(new FormData(e.target));
+      const body = { email: fd.email, password: fd.password, nickname: fd.nickname, ...(signup ? readAgreements(form) : {}) };
       try {
-        await api(`/api/auth/${mode}`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        await api(`/api/auth/${mode}`, { method: 'POST', body });
         await loadMe();
         location.hash = state.me.location?.verified ? '#/' : '#/verify';
       } catch (err) { toast(err.message); btn.disabled = false; }
     });
   }
 
-  // 소셜 로그인으로 처음 가입한 사람: 닉네임 확인 후 동네 인증으로
+  // ------------------------------------------------------------ 약관 동의
+  const AGREEMENTS = [
+    ['agreeAge', '만 14세 이상입니다', null],
+    ['agreeTerms', '이용약관 동의', 'terms'],
+    ['agreePrivacy', '개인정보 수집·이용 동의', 'privacy'],
+    ['agreeLocation', '위치기반서비스 이용약관 동의', 'location'],
+  ];
+  const agreementsHtml = () => `
+    <div class="agree-box">
+      <label class="agree-all"><input type="checkbox" data-agree-all> <b>전체 동의</b></label>
+      ${AGREEMENTS.map(([name, label, doc]) => `
+        <div class="agree-row">
+          <label><input type="checkbox" data-agree="${name}"> <span class="req">(필수)</span> ${label}</label>
+          ${doc ? `<button type="button" class="link small" data-policy="${doc}">보기</button>` : ''}
+        </div>`).join('')}
+    </div>`;
+  function bindAgreements(root) {
+    const all = root.querySelector('[data-agree-all]');
+    const items = [...root.querySelectorAll('[data-agree]')];
+    all.addEventListener('change', () => items.forEach((i) => { i.checked = all.checked; }));
+    items.forEach((i) => i.addEventListener('change', () => { all.checked = items.every((x) => x.checked); }));
+    root.querySelectorAll('[data-policy]').forEach((b) => b.addEventListener('click', () => showPolicyModal(b.dataset.policy)));
+  }
+  const readAgreements = (root) => Object.fromEntries([...root.querySelectorAll('[data-agree]')].map((i) => [i.dataset.agree, i.checked]));
+  const agreementsOk = (root) => Object.values(readAgreements(root)).every(Boolean);
+
+  const policyFooter = () => `
+    <div class="policy-footer small muted">
+      <a href="#/policy/terms">이용약관</a> · <a href="#/policy/privacy"><b>개인정보처리방침</b></a> · <a href="#/policy/location">위치기반서비스 이용약관</a>
+      ${state.config.service.contactEmail ? `<br>문의 <a href="mailto:${esc(state.config.service.contactEmail)}">${esc(state.config.service.contactEmail)}</a>` : ''}
+    </div>`;
+
+  function showPolicyModal(doc) {
+    const d = Policies.docs[doc];
+    openModal(`<div class="policy">${d.render(state.config.service)}</div><button class="btn block" data-close style="margin-top:16px">닫기</button>`);
+  }
+
+  function viewPolicy(doc) {
+    const loggedIn = !!state.me && state.me.termsAgreed && !state.me.suspended;
+    setChrome({ tab: 'me', bars: loggedIn });
+    $app.innerHTML = '';
+    $app.append(h(`
+      <div class="${loggedIn ? '' : 'auth-wrap policy-page'}"><div class="card policy">
+        <a class="link small" href="javascript:history.back()">← 뒤로</a>
+        ${Policies.docs[doc].render(state.config.service)}
+      </div></div>`));
+    window.scrollTo(0, 0);
+  }
+
+  // 소셜 로그인 첫 가입자 / 약관이 바뀐 기존 회원: 약관 동의 (+ 닉네임 확인)
   function viewWelcome() {
     setChrome({ bars: false });
+    const isNew = !state.me.location; // 동네 인증 전이면 새로 가입한 사람
     $app.innerHTML = '';
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
-          <div class="logo">👋</div>
-          <h1>환영해요!</h1>
-          <div class="muted">동네 헬스메이트에서 사용할 닉네임을 정해 주세요</div>
+          <div class="logo">${isNew ? '👋' : '📄'}</div>
+          <h1>${isNew ? '짐짝에 오신 걸 환영해요!' : '약관이 변경되었어요'}</h1>
+          <div class="muted">${isNew ? '닉네임을 정하고 약관에 동의해 주세요' : '계속 이용하려면 변경된 약관에 동의해 주세요'}</div>
         </div>
         <form class="card stack" id="welcomeForm">
-          <label class="field"><span>닉네임</span><input type="text" name="nickname" value="${esc(state.me.nickname)}" required minlength="2" maxlength="20"></label>
-          <button class="btn primary block" type="submit">다음 · 동네 인증하기</button>
+          ${isNew ? `<label class="field"><span>닉네임</span><input type="text" name="nickname" value="${esc(state.me.nickname)}" required minlength="2" maxlength="20"></label>` : ''}
+          ${agreementsHtml()}
+          <button class="btn primary block" type="submit">${isNew ? '동의하고 동네 인증하기' : '동의하고 계속하기'}</button>
+          <button class="btn block" type="button" id="welcomeLogout">로그아웃</button>
         </form>
+        ${policyFooter()}
       </div></div>`));
-    document.getElementById('welcomeForm').addEventListener('submit', async (e) => {
+    const form = document.getElementById('welcomeForm');
+    bindAgreements(form);
+    document.getElementById('welcomeLogout').addEventListener('click', logout);
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = e.target.querySelector('button'); btn.disabled = true;
+      if (!agreementsOk(form)) return toast('필수 약관에 모두 동의해 주세요.');
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        await api('/api/me/nickname', { method: 'PUT', body: { nickname: e.target.nickname.value } });
+        await api('/api/me/consent', { method: 'PUT', body: { ...(isNew ? { nickname: form.nickname.value } : {}), ...readAgreements(form) } });
         await loadMe();
-        location.hash = '#/verify';
+        location.hash = state.me.location?.verified ? '#/' : '#/verify';
       } catch (err) { toast(err.message); btn.disabled = false; }
     });
+  }
+
+  // ------------------------------------------------------------ 이용 정지 안내
+  function viewSuspended() {
+    setChrome({ bars: false });
+    const sp = state.me.suspended;
+    const email = state.config.service.contactEmail;
+    $app.innerHTML = '';
+    $app.append(h(`
+      <div class="auth-wrap"><div class="auth-card">
+        <div class="auth-hero"><div class="logo">⛔</div><h1>이용이 정지된 계정이에요</h1></div>
+        <div class="card stack">
+          <dl class="kv"><dt>사유</dt><dd>${esc(sp.reason || '운영정책 위반')}</dd><dt>정지 일시</dt><dd>${esc(parseDate(sp.at).toLocaleString('ko-KR'))}</dd></dl>
+          <div class="small muted">정지 중에는 다른 회원에게 프로필이 보이지 않고 쪽지·채팅을 할 수 없어요.
+            ${email ? `이의가 있으면 <a class="link" href="mailto:${esc(email)}">${esc(email)}</a>로 문의해 주세요.` : ''}</div>
+          <a class="btn block" href="/api/me/export" download>📥 내 정보 내려받기</a>
+          <button class="btn block" id="suspLogout">로그아웃</button>
+          <button class="btn block danger" id="suspDelete">회원 탈퇴</button>
+        </div>
+        ${policyFooter()}
+      </div></div>`));
+    document.getElementById('suspLogout').addEventListener('click', logout);
+    document.getElementById('suspDelete').addEventListener('click', openDeleteAccount);
+  }
+
+  async function logout() {
+    await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    state.me = null; state.socket?.disconnect(); state.socket = null;
+    location.hash = '#/login';
   }
 
   // ------------------------------------------------------------ views: 동네 인증
@@ -216,6 +326,7 @@
 
     const start = state.me.lat != null ? [state.me.lat, state.me.lng] : [37.5665, 126.978];
     await MateMap.load(state.config);
+    if (!document.getElementById('verifyMap')) return; // 지도 로딩 중 다른 화면으로 이동함
     const map = state.map = MateMap.create(document.getElementById('verifyMap'), { center: start, zoom: state.me.lat != null ? 15 : 12 });
     if (state.me.lat != null) map.setPin(start);
     let picked = null;
@@ -288,6 +399,7 @@
       </div>`));
 
     await MateMap.load(state.config);
+    if (!document.getElementById('map')) return; // 지도 로딩 중 다른 화면으로 이동함
     const me = [state.me.lat, state.me.lng];
     const map = state.map = MateMap.create(document.getElementById('map'), { center: me, zoom: 14 });
 
@@ -309,6 +421,7 @@
         if (e.code === 'NEED_VERIFY') { location.hash = '#/verify'; return; }
         throw e;
       }
+      if (!document.getElementById('mateList')) return;
       map.setMe(me);
       map.showRadius(me, state.nearby.radius);
       render();
@@ -388,7 +501,7 @@
         <label class="field"><span>쪽지 보내기</span>
           <textarea name="content" maxlength="300" required placeholder="안녕하세요! ${u.workoutDays.length ? `저도 ${esc(u.workoutDays.join('·'))}에 운동해요.` : ''} 같이 운동하실래요? 💪"></textarea></label>
         <button class="btn primary block" type="submit">✉️ 쪽지 보내기</button>
-        <div class="small muted">상대방이 쪽지를 수락하면 1:1 채팅이 열려요.</div>
+        <div class="small muted">상대방이 쪽지를 수락하면 1:1 채팅이 열려요.<br>🛡️ 처음 만날 땐 헬스장 등 공개된 장소에서 만나고, 돈이나 개인정보를 요구하면 신고해 주세요.</div>
       </form>`;
     const prefs = prefsLines(u.prefs);
     openModal(`
@@ -423,7 +536,13 @@
         </div>
         ${action}
         <button class="btn block" data-close>닫기</button>
+        <div class="safety-actions">
+          <button type="button" class="link small muted" id="pReport">🚨 신고하기</button>
+          <button type="button" class="link small muted" id="pBlock">⛔ 차단하기</button>
+        </div>
       </div>`);
+    document.getElementById('pReport').addEventListener('click', () => openReport(u));
+    document.getElementById('pBlock').addEventListener('click', () => blockUser(u));
     const form = document.getElementById('noteForm');
     if (form) form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -486,6 +605,132 @@
   function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
   function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch {} }
 
+  // ------------------------------------------------------------ 신고 · 차단
+  const safetyDismissed = (roomId) => { try { return localStorage.getItem(`safety:${roomId}`) === '1'; } catch { return false; } };
+
+  function openReport(user, roomId = null) {
+    openModal(`
+      <h2>🚨 ${esc(user.nickname)}님 신고하기</h2>
+      <form id="reportForm" class="stack">
+        <div class="stack report-reasons">
+          ${state.config.reportReasons.map((r) => `<label class="row"><input type="radio" name="reason" value="${esc(r)}" required> ${esc(r)}</label>`).join('')}
+        </div>
+        <label class="field"><span>자세한 내용 (선택, '기타'는 필수)</span><textarea name="detail" maxlength="1000" placeholder="어떤 일이 있었는지 알려주세요"></textarea></label>
+        ${roomId ? '<div class="small muted">신고 확인을 위해 이 채팅방의 최근 대화 내용이 운영팀에 함께 전달돼요.</div>' : ''}
+        <label class="row small"><input type="checkbox" name="block" checked> 이 사용자 차단하기 (서로 보이지 않고 연락할 수 없어요)</label>
+        <button class="btn primary block" type="submit">신고하기</button>
+        <button class="btn block" type="button" data-close>취소</button>
+      </form>`);
+    const form = document.getElementById('reportForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        const r = await api('/api/reports', { method: 'POST', body: { targetId: user.id, reason: form.reason.value, detail: form.detail.value, roomId, block: form.block.checked } });
+        closeModal();
+        toast(r.blocked ? '신고가 접수되고 차단되었어요. 운영팀이 확인할게요.' : '신고가 접수되었어요. 운영팀이 확인할게요.');
+        if (r.blocked) afterBlock(roomId ? () => { location.hash = '#/chats'; } : null);
+      } catch (err) { toast(err.message); btn.disabled = false; }
+    });
+  }
+
+  async function blockUser(user, after) {
+    if (!confirm(`${user.nickname}님을 차단할까요?\n서로 프로필이 보이지 않고 쪽지·채팅을 주고받을 수 없어요. 차단은 [내 정보 → 차단 목록]에서 해제할 수 있어요.`)) return;
+    try {
+      await api('/api/blocks', { method: 'POST', body: { userId: user.id } });
+      closeModal();
+      toast(`${user.nickname}님을 차단했어요`);
+      afterBlock(after);
+    } catch (err) { toast(err.message); }
+  }
+  function afterBlock(after) {
+    refreshBadges();
+    if (after) after(); else route();
+  }
+
+  async function viewBlocks() {
+    setChrome({ tab: 'me' });
+    const list = await api('/api/blocks');
+    $app.innerHTML = '';
+    $app.append(h(`
+      <a class="link small" href="#/me">← 내 정보</a>
+      <h1>차단 목록</h1>
+      ${list.length ? list.map((u) => `
+        <div class="list-item">
+          ${avatar(u.photo)}
+          <div class="meta"><div class="title">${esc(u.nickname)}</div><div class="sub">${esc(timeLabel(u.blockedAt))} 차단</div></div>
+          <button class="btn sm" data-unblock="${u.id}" data-name="${esc(u.nickname)}">차단 해제</button>
+        </div>`).join('') : '<div class="empty"><span class="big">🙂</span>차단한 사용자가 없어요.</div>'}`));
+    $app.querySelectorAll('[data-unblock]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm(`${b.dataset.name}님의 차단을 해제할까요?`)) return;
+      await api(`/api/blocks/${b.dataset.unblock}`, { method: 'DELETE' });
+      toast('차단을 해제했어요'); viewBlocks();
+    }));
+  }
+
+  // ------------------------------------------------------------ 관리자: 신고 처리
+  async function viewAdmin(tab = 'pending') {
+    setChrome({ tab: 'me' });
+    if (!state.me.isAdmin) { location.hash = '#/me'; return; }
+    const tabs = [['pending', '대기 중'], ['actioned', '조치 완료'], ['dismissed', '기각'], ['suspended', '정지 회원']];
+    const data = tab === 'suspended' ? await api('/api/admin/suspended') : await api(`/api/admin/reports?status=${tab}`);
+    $app.innerHTML = '';
+    $app.append(h(`
+      <a class="link small" href="#/me">← 내 정보</a>
+      <h1>🛡️ 신고 관리</h1>
+      <div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div id="adminList">${tab === 'suspended' ? suspendedHtml(data) : reportsHtml(data, tab)}</div>`));
+    $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => viewAdmin(b.dataset.tab)));
+    $app.querySelectorAll('[data-resolve]').forEach((b) => b.addEventListener('click', async () => {
+      const action = b.dataset.resolve;
+      let reason = '';
+      if (action === 'suspend') {
+        reason = prompt('정지 사유 (회원에게 표시돼요)', `운영정책 위반 (${b.dataset.reason})`);
+        if (reason === null) return;
+      } else if (!confirm('이 신고를 기각할까요?')) return;
+      await api(`/api/admin/reports/${b.dataset.id}/resolve`, { method: 'POST', body: { action, reason } });
+      toast(action === 'suspend' ? '이용 정지했어요' : '기각했어요'); viewAdmin(tab);
+    }));
+    $app.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm(`${b.dataset.name}님의 정지를 해제할까요?`)) return;
+      await api(`/api/admin/users/${b.dataset.unsuspend}/unsuspend`, { method: 'POST' });
+      toast('정지를 해제했어요'); viewAdmin(tab);
+    }));
+  }
+  function reportsHtml(list, tab) {
+    if (!list.length) return '<div class="empty"><span class="big">✅</span>신고가 없어요.</div>';
+    return list.map((r) => `
+      <div class="card stack" style="margin-bottom:10px">
+        <div class="row wrap">
+          <b>${esc(r.target.nickname)}</b>
+          <span class="small muted">${esc(r.target.email || '')} ${r.target.deleted ? '(탈퇴)' : ''}</span>
+          <span class="spacer"></span>
+          <span class="status ${r.target.suspended ? 'declined' : 'pending'}">${r.target.suspended ? '정지됨' : '이용 중'}</span>
+        </div>
+        <div><span class="tag">${esc(r.reason)}</span> <span class="small muted">누적 신고 ${r.target.reportCount}건</span></div>
+        ${r.detail ? `<div class="note-body">${esc(r.detail)}</div>` : ''}
+        ${r.evidence ? `
+          <details><summary class="small">💬 신고된 대화 (${r.evidence.length}개)</summary>
+            <div class="evidence">${r.evidence.map((m) => `<div class="${m.from}"><b>${m.from === 'target' ? esc(r.target.nickname) : esc(r.reporter.nickname)}</b> ${esc(m.content)} <span class="muted">${esc(timeLabel(m.at))}</span></div>`).join('')}</div>
+          </details>` : ''}
+        ${r.target.suspended ? `<div class="small muted">정지 사유: ${esc(r.target.suspended.reason || '')}</div>` : ''}
+        <div class="small muted">신고자 ${esc(r.reporter.nickname)} · ${esc(parseDate(r.createdAt).toLocaleString('ko-KR'))}</div>
+        ${tab === 'pending' && !r.target.deleted ? `
+          <div class="row"><button class="btn sm" data-resolve="dismiss" data-id="${r.id}">기각</button><span class="spacer"></span>
+            <button class="btn sm danger" data-resolve="suspend" data-id="${r.id}" data-reason="${esc(r.reason)}">이용 정지</button></div>` : ''}
+        ${tab === 'pending' && r.target.deleted ? `<div class="row"><button class="btn sm" data-resolve="dismiss" data-id="${r.id}">처리 완료 (탈퇴 회원)</button></div>` : ''}
+      </div>`).join('');
+  }
+  function suspendedHtml(list) {
+    if (!list.length) return '<div class="empty"><span class="big">🙂</span>정지된 회원이 없어요.</div>';
+    return list.map((u) => `
+      <div class="list-item">
+        <div class="meta"><div class="title">${esc(u.nickname)} <span class="small muted">${esc(u.email || '')}</span></div>
+          <div class="sub">${esc(u.reason || '')} · ${esc(timeLabel(u.suspendedAt))}</div></div>
+        <button class="btn sm" data-unsuspend="${u.id}" data-name="${esc(u.nickname)}">정지 해제</button>
+      </div>`).join('');
+  }
+
   // ------------------------------------------------------------ views: 채팅 목록
   async function viewChats() {
     setChrome({ tab: 'chats' });
@@ -520,14 +765,20 @@
           <a href="#/chats" class="btn sm" aria-label="뒤로">←</a>
           ${avatar(other.photo)}
           <div style="flex:1;min-width:0"><b>${esc(other.nickname)}</b><div class="small muted">${esc(other.region || '')}</div></div>
-          <button class="btn sm" id="viewProfile">프로필</button>
+          <button class="btn sm" id="chatMenu" aria-label="메뉴">⋯</button>
         </div>
+        ${safetyDismissed(roomId) ? '' : `
+          <div class="safety-banner" id="safetyBanner">
+            <span>🛡️ <b>안전 수칙</b> 첫 만남은 헬스장 등 공개된 장소에서 · 금전 요구·외부 링크 주의 · 불쾌한 대화는 ⋯ 메뉴에서 신고해 주세요</span>
+            <button type="button" class="link small" id="safetyClose">닫기</button>
+          </div>`}
         <div class="chat-msgs" id="msgs"></div>
         <div class="typing" id="typing"></div>
+        ${data.room.canSend ? `
         <form class="chat-input" id="chatForm">
           <textarea name="content" placeholder="메시지를 입력하세요" maxlength="1000" rows="1"></textarea>
           <button class="btn primary" type="submit">전송</button>
-        </form>
+        </form>` : '<div class="chat-input cannot-send small muted">메시지를 보낼 수 없는 상대예요.</div>'}
       </div>`));
     state.chatRoomId = roomId;
     lastDay = null;
@@ -535,8 +786,25 @@
     if (!data.messages.length) document.getElementById('msgs').innerHTML = '<div class="day-sep">채팅방이 열렸어요. 인사를 건네 보세요 👋</div>';
     scrollBottom();
 
-    document.getElementById('viewProfile').addEventListener('click', () => showProfile(other.id).catch((e) => toast(e.message)));
+    document.getElementById('safetyClose')?.addEventListener('click', () => {
+      document.getElementById('safetyBanner').remove();
+      try { localStorage.setItem(`safety:${roomId}`, '1'); } catch {}
+    });
+    document.getElementById('chatMenu').addEventListener('click', () => {
+      openModal(`
+        <div class="menu-sheet">
+          <div class="small muted" style="text-align:center;margin-bottom:8px">${esc(other.nickname)}</div>
+          <button class="btn block" data-m="profile">👤 프로필 보기</button>
+          <button class="btn block" data-m="report">🚨 신고하기</button>
+          <button class="btn block danger" data-m="block">⛔ 차단하기</button>
+          <button class="btn block" data-close>취소</button>
+        </div>`);
+      $modalBody.querySelector('[data-m=profile]').addEventListener('click', () => showProfile(other.id).catch((e) => toast(e.message)));
+      $modalBody.querySelector('[data-m=report]').addEventListener('click', () => openReport(other, roomId));
+      $modalBody.querySelector('[data-m=block]').addEventListener('click', () => blockUser(other, () => { location.hash = '#/chats'; }));
+    });
     const form = document.getElementById('chatForm');
+    if (!form) return;
     const ta = form.content;
     let lastTyping = 0;
     const send = () => {
@@ -634,10 +902,22 @@
           <div class="small muted">설정한 조건에 맞는 사람에게는 목록에서 '✅ 내 조건에 맞음' 표시가 붙어요.</div>
         </section>
 
-        <label class="row small card"><input type="checkbox" name="isPublic" ${me.isPublic ? 'checked' : ''}> 동네 헬스메이트 목록에 내 프로필 공개</label>
+        <label class="row small card"><input type="checkbox" name="isPublic" ${me.isPublic ? 'checked' : ''}> 짐짝 동네 목록에 내 프로필 공개</label>
         <button class="btn primary block" type="submit">저장하기</button>
       </form>
-      <div class="row" style="margin-top:16px"><span class="small muted">${esc({ kakao: '카카오 계정으로 로그인됨', google: 'Google 계정으로 로그인됨' }[me.provider] || me.email || '')}</span><span class="spacer"></span><button class="btn sm danger" id="logoutBtn">로그아웃</button></div>`));
+      <div class="card menu-list" style="margin-top:14px">
+        <div class="small muted menu-caption">${esc({ kakao: '카카오 계정으로 로그인됨', google: 'Google 계정으로 로그인됨' }[me.provider] || me.email || '')}</div>
+        ${me.isAdmin ? '<a href="#/admin">🛡️ 신고 관리 (관리자)<b class="badge inline" id="badgeReports"></b></a>' : ''}
+        <a href="#/blocks">⛔ 차단 목록</a>
+        ${me.provider === 'email' ? '<button type="button" id="pwBtn">🔑 비밀번호 변경</button>' : ''}
+        <a href="/api/me/export" download>📥 내 정보 내려받기</a>
+        <a href="#/policy/terms">📄 이용약관</a>
+        <a href="#/policy/privacy">🔒 개인정보처리방침</a>
+        <a href="#/policy/location">📍 위치기반서비스 이용약관</a>
+        ${state.config.service.contactEmail ? `<a href="mailto:${esc(state.config.service.contactEmail)}">✉️ 문의하기</a>` : ''}
+        <button type="button" id="logoutBtn">로그아웃</button>
+        <button type="button" id="deleteBtn" class="danger-text">회원 탈퇴</button>
+      </div>`));
 
     const form = document.getElementById('profileForm');
     ['dayChips', 'timeChips'].forEach((id) => document.getElementById(id).addEventListener('click', (e) => { const ch = e.target.closest('.chip'); if (ch) ch.classList.toggle('on'); }));
@@ -667,10 +947,55 @@
         location.hash = '#/';
       } catch (err) { toast(err.message); btn.disabled = false; }
     });
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      await api('/api/auth/logout', { method: 'POST' });
-      state.me = null; state.socket?.disconnect(); state.socket = null;
-      location.hash = '#/login';
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+    document.getElementById('deleteBtn').addEventListener('click', openDeleteAccount);
+    document.getElementById('pwBtn')?.addEventListener('click', openChangePassword);
+    if (me.isAdmin) api('/api/badges').then((b) => { document.getElementById('badgeReports').textContent = b.reports || ''; }).catch(() => {});
+  }
+
+  function openChangePassword() {
+    openModal(`
+      <h2>🔑 비밀번호 변경</h2>
+      <form id="pwForm" class="stack">
+        <label class="field"><span>현재 비밀번호</span><input type="password" name="current" required autocomplete="current-password"></label>
+        <label class="field"><span>새 비밀번호 (8자 이상)</span><input type="password" name="next" required minlength="8" autocomplete="new-password"></label>
+        <button class="btn primary block" type="submit">변경하기</button>
+        <button class="btn block" type="button" data-close>취소</button>
+      </form>`);
+    const form = document.getElementById('pwForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/me/password', { method: 'PUT', body: { current: form.current.value, next: form.next.value } });
+        closeModal(); toast('비밀번호를 변경했어요');
+      } catch (err) { toast(err.message); }
+    });
+  }
+
+  function openDeleteAccount() {
+    const email = state.me.provider === 'email';
+    openModal(`
+      <h2>회원 탈퇴</h2>
+      <div class="stack">
+        <div class="banner small" style="display:block">탈퇴하면 프로필, 사진, 동네 인증, 쪽지, 채팅 내용이 <b>즉시 삭제되고 복구할 수 없어요.</b>
+          상대방 채팅방에서도 대화가 사라져요.${state.me.suspended ? '<br>이용 정지 상태에서 탈퇴하면 같은 이메일로 다시 가입할 수 없어요.' : ''}</div>
+        <a class="link small" href="/api/me/export" download>📥 탈퇴 전에 내 정보 내려받기</a>
+        <form id="delForm" class="stack">
+          ${email ? '<label class="field"><span>비밀번호 확인</span><input type="password" name="password" required autocomplete="current-password"></label>'
+            : "<label class=\"field\"><span>확인을 위해 '탈퇴'를 입력해 주세요</span><input type=\"text\" name=\"confirm\" required></label>"}
+          <button class="btn block danger" type="submit">탈퇴하기</button>
+          <button class="btn block" type="button" data-close>취소</button>
+        </form>
+      </div>`);
+    const form = document.getElementById('delForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/me', { method: 'DELETE', body: email ? { password: form.password.value } : { confirm: form.confirm.value } });
+        state.me = null; state.socket?.disconnect(); state.socket = null;
+        closeModal(); toast('탈퇴가 완료되었어요. 그동안 짐짝을 이용해 주셔서 감사해요.');
+        location.hash = '#/login';
+      } catch (err) { toast(err.message); }
     });
   }
 

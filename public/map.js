@@ -103,7 +103,7 @@
       showRadius(c, km) {
         if (circle) circle.remove();
         circle = L.circle(c, { radius: km * 1000, color: '#16a34a', weight: 1, fillOpacity: 0.05 }).addTo(map);
-        map.fitBounds(circle.getBounds(), { padding: [10, 10] });
+        map.fitBounds(circle.getBounds(), { padding: [10, 10], animate: false }); // 애니메이션 중 화면 이동 시 Leaflet 오류 방지
       },
       setMe(c) {
         if (me) me.remove();

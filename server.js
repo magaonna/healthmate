@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { Server } = require('socket.io');
-const { db, DATA_DIR } = require('./db');
+const { db, DATA_DIR, TERMS_VERSION } = require('./db');
 
 const PORT = Number(process.env.PORT) || 3000;
 const VERIFY_VALID_DAYS = 30;          // 동네 인증 유효기간
@@ -33,6 +33,20 @@ const GENDERS = ['male', 'female'];
 const AGE_MIN = 14;
 const AGE_MAX = 99;
 const MAX_1RM_KG = 500;
+
+// 서비스 · 운영 정보 (약관/개인정보처리방침에 표시)
+const SERVICE = {
+  name: '짐짝(GYMJJAK)',
+  operator: process.env.SERVICE_OPERATOR || '짐짝 운영팀',
+  contactEmail: process.env.CONTACT_EMAIL || '',
+  privacyOfficer: process.env.PRIVACY_OFFICER || '',
+  termsVersion: TERMS_VERSION,
+};
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+const AUTO_SUSPEND_REPORTERS = 3;        // 30일 안에 서로 다른 N명에게 신고되면 자동 이용 정지
+const REPORT_REASONS = ['부적절한 사진·프로필', '욕설·비하·혐오 표현', '성희롱·불쾌한 연락', '스팸·광고·영업', '사기·금전 요구', '미성년자 의심', '기타'];
+const LOCATION_LOG_KEEP_DAYS = 183;      // 위치정보 이용·제공사실 확인자료 6개월 보관
+const REPORT_KEEP_DAYS = 365;            // 처리 완료된 신고 기록 1년 보관
 
 // ---------------------------------------------------------------- helpers
 
@@ -63,9 +77,10 @@ function isVerified(loc) {
   return Date.now() - verified.getTime() < VERIFY_VALID_DAYS * 86400 * 1000;
 }
 
-async function reverseGeocode(lat, lng) {
+async function reverseGeocode(lat, lng, providedTo = []) {
   // 1순위: 카카오 로컬 API (행정동 단위, 키가 있을 때)
   if (KAKAO_REST_KEY) {
+    providedTo.push('카카오');
     try {
       const r = await fetch(`https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x=${lng}&y=${lat}`, {
         headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
@@ -79,9 +94,10 @@ async function reverseGeocode(lat, lng) {
     } catch (e) { console.warn('kakao reverse geocode failed:', e.message); }
   }
   // 2순위: OpenStreetMap Nominatim
+  providedTo.push('OpenStreetMap Foundation');
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&accept-language=ko`, {
-      headers: { 'User-Agent': 'healthmate-local/1.0' },
+      headers: { 'User-Agent': 'gymjjak/1.0' },
       signal: AbortSignal.timeout(5000),
     });
     if (r.ok) {
@@ -160,6 +176,13 @@ const userWithProfile = db.prepare(`
   LEFT JOIN locations l ON l.user_id = u.id
   WHERE u.id = ?`);
 
+// a 와 b 사이에 어느 쪽이든 차단이 있는지
+const isBlockedBetween = (a, b) => !!db.prepare(
+  'SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)').get(a, b, b, a);
+const iBlocked = (me, other) => !!db.prepare('SELECT 1 FROM blocks WHERE blocker_id = ? AND blocked_id = ?').get(me, other);
+const isActiveUser = (id) => !!db.prepare('SELECT 1 FROM users WHERE id = ? AND suspended_at IS NULL').get(id);
+const hashEmail = (email) => crypto.createHash('sha256').update(email.toLowerCase()).digest('hex');
+
 function roomFor(a, b) {
   const [x, y] = a < b ? [a, b] : [b, a];
   return db.prepare('SELECT * FROM rooms WHERE user_a = ? AND user_b = ?').get(x, y);
@@ -169,6 +192,10 @@ function roomFor(a, b) {
 
 const app = express();
 app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin' });
+  next();
+});
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -190,16 +217,50 @@ function issueToken(res, userId) {
   res.cookie('token', jwt.sign({ uid: userId }, JWT_SECRET, { expiresIn: '30d' }), COOKIE_OPTS);
 }
 
+// 약관 동의 전 / 이용 정지 상태에서도 쓸 수 있는 API
+const CONSENT_FREE = new Set(['GET /api/me', 'PUT /api/me/consent', 'DELETE /api/me', 'GET /api/me/export']);
+const SUSPENDED_ALLOWED = new Set(['GET /api/me', 'DELETE /api/me', 'GET /api/me/export']);
+
 function auth(req, res, next) {
+  let user;
   try {
     const { uid } = jwt.verify(req.cookies.token || '', JWT_SECRET);
-    const user = db.prepare('SELECT id, provider, email, nickname FROM users WHERE id = ?').get(uid);
-    if (!user) throw new Error('no user');
-    req.user = user;
-    next();
-  } catch {
-    res.status(401).json({ error: '로그인이 필요합니다.' });
+    user = db.prepare('SELECT id, provider, email, nickname, terms_agreed_at, terms_version, suspended_at, suspended_reason FROM users WHERE id = ?').get(uid);
+  } catch { /* 아래에서 처리 */ }
+  if (!user) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  user.isAdmin = !!user.email && ADMIN_EMAILS.includes(user.email);
+  user.termsAgreed = !!user.terms_agreed_at && user.terms_version === SERVICE.termsVersion;
+  req.user = user;
+  const key = `${req.method} ${req.path}`;
+  if (user.suspended_at && !SUSPENDED_ALLOWED.has(key)) {
+    return res.status(403).json({ error: '이용이 정지된 계정입니다.', code: 'SUSPENDED' });
   }
+  if (!user.termsAgreed && !CONSENT_FREE.has(key)) {
+    return res.status(403).json({ error: '약관 동의가 필요합니다.', code: 'NEED_CONSENT' });
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user.isAdmin) return res.status(403).json({ error: '관리자만 사용할 수 있습니다.' });
+  next();
+}
+
+// 필수 동의 항목 확인
+const REQUIRED_AGREEMENTS = ['agreeAge', 'agreeTerms', 'agreePrivacy', 'agreeLocation'];
+const hasAllAgreements = (body) => REQUIRED_AGREEMENTS.every((k) => body[k] === true);
+
+// 로그인 시도 제한: IP 당 15분에 실패 10회
+const loginFailures = new Map();
+function loginLimited(ip) {
+  const f = loginFailures.get(ip);
+  if (f && f.until < Date.now()) { loginFailures.delete(ip); return false; }
+  return !!f && f.count >= 10;
+}
+function recordLoginFailure(ip) {
+  const f = loginFailures.get(ip) || { count: 0, until: Date.now() + 15 * 60 * 1000 };
+  f.count += 1;
+  loginFailures.set(ip, f);
 }
 
 function requireVerified(req, res, next) {
@@ -289,14 +350,14 @@ app.get('/auth/:provider/callback', wrap(async (req, res) => {
   let user = db.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').get(provider, profile.id);
   let isNew = false;
   if (!user) {
-    const nickname = clean(profile.nickname || '', 20).length >= 2 ? clean(profile.nickname, 20) : `헬스메이트${crypto.randomInt(1000, 10000)}`;
+    const nickname = clean(profile.nickname || '', 20).length >= 2 ? clean(profile.nickname, 20) : `짐짝러${crypto.randomInt(1000, 10000)}`;
     const { lastInsertRowid } = db.prepare('INSERT INTO users (provider, provider_id, nickname) VALUES (?, ?, ?)').run(provider, profile.id, nickname);
     db.prepare('INSERT INTO profiles (user_id) VALUES (?)').run(lastInsertRowid);
     user = { id: Number(lastInsertRowid) };
     isNew = true;
   }
   issueToken(res, user.id);
-  res.redirect(isNew ? '/#/welcome' : '/#/');
+  res.redirect(isNew ? '/#/welcome' : '/#/'); // 약관 미동의 사용자는 화면에서 동의 페이지로 이동
 }));
 
 // ---- 이메일 회원가입 / 로그인
@@ -308,21 +369,29 @@ app.post('/api/auth/signup', wrap(async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: '올바른 이메일을 입력해 주세요.' });
   if (password.length < 8) return res.status(400).json({ error: '비밀번호는 8자 이상이어야 합니다.' });
   if (nickname.length < 2) return res.status(400).json({ error: '닉네임은 2자 이상이어야 합니다.' });
+  if (!hasAllAgreements(req.body)) return res.status(400).json({ error: '필수 약관에 모두 동의해 주세요.' });
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) return res.status(409).json({ error: '이미 가입된 이메일입니다.' });
+  if (db.prepare('SELECT 1 FROM banned_emails WHERE email_hash = ?').get(hashEmail(email))) {
+    return res.status(403).json({ error: '이용이 제한된 이메일입니다. 고객센터로 문의해 주세요.' });
+  }
 
   const hash = await bcrypt.hash(password, 10);
-  const { lastInsertRowid } = db.prepare('INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)').run(email, hash, nickname);
+  const { lastInsertRowid } = db.prepare(`INSERT INTO users (email, password_hash, nickname, terms_agreed_at, terms_version)
+    VALUES (?, ?, ?, datetime('now'), ?)`).run(email, hash, nickname, SERVICE.termsVersion);
   db.prepare('INSERT INTO profiles (user_id) VALUES (?)').run(lastInsertRowid);
   issueToken(res, Number(lastInsertRowid));
   res.json({ ok: true });
 }));
 
 app.post('/api/auth/login', wrap(async (req, res) => {
+  if (loginLimited(req.ip)) return res.status(429).json({ error: '로그인 시도가 너무 많아요. 15분 뒤에 다시 시도해 주세요.' });
   const email = clean(req.body.email, 200).toLowerCase();
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (!user?.password_hash || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
+    recordLoginFailure(req.ip);
     return res.status(401).json({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
   }
+  loginFailures.delete(req.ip);
   issueToken(res, user.id);
   res.json({ ok: true });
 }));
@@ -337,6 +406,8 @@ app.get('/api/config', (req, res) => {
     days: DAYS, times: TIMES, careers: CAREERS, ageMin: AGE_MIN, ageMax: AGE_MAX, max1rm: MAX_1RM_KG,
     allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS, kakaoJsKey: KAKAO_JS_KEY,
     loginProviders: enabledProviders(),
+    reportReasons: REPORT_REASONS,
+    service: { ...SERVICE, geocoder: KAKAO_REST_KEY ? 'kakao' : 'osm', locationLogKeepDays: LOCATION_LOG_KEEP_DAYS, reportKeepDays: REPORT_KEEP_DAYS, verifyValidDays: VERIFY_VALID_DAYS },
   });
 });
 
@@ -350,17 +421,73 @@ app.get('/api/me', auth, (req, res) => {
     ...me,
     email: req.user.email,
     provider: req.user.provider,
+    isAdmin: req.user.isAdmin,
+    termsAgreed: req.user.termsAgreed,
+    suspended: req.user.suspended_at ? { at: req.user.suspended_at, reason: req.user.suspended_reason } : null,
     isPublic: !!row.is_public,
     location: loc ? { region: loc.region, district: loc.district, verifiedAt: loc.verified_at, verified: isVerified(loc) } : null,
     profileComplete: !!(row.gender && row.age && row.career && row.workout_days),
   });
 });
 
-app.put('/api/me/nickname', auth, (req, res) => {
-  const nickname = clean(req.body.nickname, 20);
-  if (nickname.length < 2) return res.status(400).json({ error: '닉네임은 2~20자로 입력해 주세요.' });
-  db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+// 약관 동의 (소셜 로그인 첫 가입자, 약관이 바뀐 기존 사용자). 닉네임도 함께 정할 수 있다
+app.put('/api/me/consent', auth, (req, res) => {
+  if (!hasAllAgreements(req.body)) return res.status(400).json({ error: '필수 약관에 모두 동의해 주세요.' });
+  if (req.body.nickname != null) {
+    const nickname = clean(req.body.nickname, 20);
+    if (nickname.length < 2) return res.status(400).json({ error: '닉네임은 2~20자로 입력해 주세요.' });
+    db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+  }
+  db.prepare(`UPDATE users SET terms_agreed_at = datetime('now'), terms_version = ? WHERE id = ?`).run(SERVICE.termsVersion, req.user.id);
   res.json({ ok: true });
+});
+
+app.put('/api/me/password', auth, wrap(async (req, res) => {
+  const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+  if (!user.password_hash) return res.status(400).json({ error: '소셜 로그인 계정은 비밀번호가 없습니다.' });
+  const next = typeof req.body.next === 'string' ? req.body.next : '';
+  if (!(await bcrypt.compare(String(req.body.current || ''), user.password_hash))) return res.status(400).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+  if (next.length < 8) return res.status(400).json({ error: '새 비밀번호는 8자 이상이어야 합니다.' });
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(next, 10), req.user.id);
+  res.json({ ok: true });
+}));
+
+// 회원 탈퇴: 프로필·위치·쪽지·채팅·차단 목록을 즉시 삭제 (위치 이용 기록·신고 기록은 법정/운영 보관기간 후 삭제)
+app.delete('/api/me', auth, wrap(async (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (user.password_hash) {
+    if (!(await bcrypt.compare(String(req.body?.password || ''), user.password_hash))) return res.status(400).json({ error: '비밀번호가 올바르지 않습니다.' });
+  } else if (req.body?.confirm !== '탈퇴') {
+    return res.status(400).json({ error: "확인을 위해 '탈퇴'를 입력해 주세요." });
+  }
+  const photo = db.prepare('SELECT photo FROM profiles WHERE user_id = ?').get(user.id)?.photo;
+  if (user.suspended_at && user.email) db.prepare('INSERT OR IGNORE INTO banned_emails (email_hash) VALUES (?)').run(hashEmail(user.email));
+  const otherIds = db.prepare('SELECT CASE WHEN user_a = ? THEN user_b ELSE user_a END AS id FROM rooms WHERE user_a = ? OR user_b = ?').all(user.id, user.id, user.id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(user.id); // profiles, locations, notes, rooms, messages, blocks 는 CASCADE
+  if (photo) fs.rm(path.join(DATA_DIR, 'uploads', photo), () => {});
+  otherIds.forEach(({ id }) => io.to(`user:${id}`).emit('rooms:changed'));
+  io.in(`user:${user.id}`).disconnectSockets(true);
+  res.clearCookie('token', { ...COOKIE_OPTS, maxAge: undefined });
+  res.json({ ok: true });
+}));
+
+// 내 정보 내려받기 (개인정보 열람)
+app.get('/api/me/export', auth, (req, res) => {
+  const uid = req.user.id;
+  const data = {
+    exportedAt: new Date().toISOString(),
+    account: db.prepare('SELECT id, provider, email, nickname, created_at, terms_agreed_at, terms_version, suspended_at, suspended_reason FROM users WHERE id = ?').get(uid),
+    profile: db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(uid),
+    location: db.prepare('SELECT lat, lng, region, district, verified_at FROM locations WHERE user_id = ?').get(uid) || null,
+    locationLogs: db.prepare('SELECT source, purpose, provided_to, created_at FROM location_logs WHERE user_id = ? ORDER BY id').all(uid),
+    notesSent: db.prepare('SELECT n.content, n.status, n.created_at, u.nickname AS to_nickname FROM notes n JOIN users u ON u.id = n.to_id WHERE n.from_id = ?').all(uid),
+    notesReceived: db.prepare('SELECT n.content, n.status, n.created_at, u.nickname AS from_nickname FROM notes n JOIN users u ON u.id = n.from_id WHERE n.to_id = ?').all(uid),
+    messagesSent: db.prepare('SELECT room_id, content, created_at FROM messages WHERE sender_id = ? ORDER BY id').all(uid),
+    blocks: db.prepare('SELECT u.nickname, b.created_at FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.blocker_id = ?').all(uid),
+    reportsFiled: db.prepare('SELECT target_nickname, reason, detail, status, created_at FROM reports WHERE reporter_id = ?').all(uid),
+  };
+  res.set('Content-Disposition', 'attachment; filename="gymjjak-my-data.json"');
+  res.type('application/json').send(JSON.stringify(data, null, 2));
 });
 
 // ---- 동네 인증
@@ -378,7 +505,10 @@ app.post('/api/location/verify', auth, wrap(async (req, res) => {
     return res.status(400).json({ error: `위치 정확도가 너무 낮습니다(${Math.round(accuracy) || '?'}m). 실외에서 다시 시도해 주세요.` });
   }
 
-  const geo = await reverseGeocode(lat, lng);
+  const providedTo = [];
+  const geo = await reverseGeocode(lat, lng, providedTo);
+  db.prepare('INSERT INTO location_logs (user_id, source, purpose, provided_to) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, manual ? 'manual' : 'gps', '동네 인증', providedTo.join(', '));
   const region = geo?.region || `${lat.toFixed(3)}, ${lng.toFixed(3)} 부근`;
   const district = geo?.district || '';
   db.prepare(`
@@ -458,10 +588,11 @@ app.get('/api/profiles/nearby', auth, requireVerified, (req, res) => {
     FROM users u
     JOIN profiles p ON p.user_id = u.id
     JOIN locations l ON l.user_id = u.id
-    WHERE u.id != ? AND p.is_public = 1
+    WHERE u.id != ? AND p.is_public = 1 AND u.suspended_at IS NULL
       AND l.verified_at > datetime('now', ?)
-      AND l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ?`).all(
-    req.user.id, `-${VERIFY_VALID_DAYS} days`, lat - dLat, lat + dLat, lng - dLng, lng + dLng);
+      AND l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ?
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?))`).all(
+    req.user.id, `-${VERIFY_VALID_DAYS} days`, lat - dLat, lat + dLat, lng - dLng, lng + dLng, req.user.id, req.user.id);
 
   const viewer = userWithProfile.get(req.user.id);
   const list = rows
@@ -473,7 +604,9 @@ app.get('/api/profiles/nearby', auth, requireVerified, (req, res) => {
 
 app.get('/api/profiles/:id', auth, requireVerified, (req, res) => {
   const row = userWithProfile.get(Number(req.params.id));
-  if (!row || (!row.is_public && row.id !== req.user.id)) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
+  if (!row || (!row.is_public && row.id !== req.user.id) || !isActiveUser(row.id) || isBlockedBetween(req.user.id, row.id)) {
+    return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
+  }
   const user = publicUser(row, userWithProfile.get(req.user.id));
   const room = roomFor(req.user.id, row.id);
   const pending = db.prepare(`SELECT id FROM notes WHERE from_id = ? AND to_id = ? AND status = 'pending'`).get(req.user.id, row.id);
@@ -487,8 +620,8 @@ app.post('/api/notes', auth, requireVerified, (req, res) => {
   const content = clean(req.body.content, 300);
   if (!content) return res.status(400).json({ error: '쪽지 내용을 입력해 주세요.' });
   if (toId === req.user.id) return res.status(400).json({ error: '자기 자신에게는 보낼 수 없습니다.' });
-  const target = db.prepare('SELECT u.id FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = ? AND p.is_public = 1').get(toId);
-  if (!target) return res.status(404).json({ error: '상대방을 찾을 수 없습니다.' });
+  const target = db.prepare('SELECT u.id FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = ? AND p.is_public = 1 AND u.suspended_at IS NULL').get(toId);
+  if (!target || isBlockedBetween(req.user.id, toId)) return res.status(404).json({ error: '상대방을 찾을 수 없습니다.' });
 
   const room = roomFor(req.user.id, toId);
   if (room) return res.status(409).json({ error: '이미 채팅 중인 상대입니다.', roomId: room.id });
@@ -512,7 +645,8 @@ app.get('/api/notes', auth, (req, res) => {
     LEFT JOIN profiles p ON p.user_id = u.id
     LEFT JOIN locations l ON l.user_id = u.id
     WHERE ${sent ? 'n.from_id' : 'n.to_id'} = ?
-    ORDER BY n.id DESC LIMIT 100`).all(req.user.id);
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ? AND b.blocked_id = u.id)
+    ORDER BY n.id DESC LIMIT 100`).all(req.user.id, req.user.id);
   if (!sent) db.prepare('UPDATE notes SET read_at = datetime(\'now\') WHERE to_id = ? AND read_at IS NULL').run(req.user.id);
   res.json(rows.map((n) => ({
     id: n.id, content: n.content, status: n.status, roomId: n.room_id, createdAt: n.created_at,
@@ -524,6 +658,7 @@ function getOwnPendingNote(req, res) {
   const note = db.prepare('SELECT * FROM notes WHERE id = ? AND to_id = ?').get(Number(req.params.id), req.user.id);
   if (!note) { res.status(404).json({ error: '쪽지를 찾을 수 없습니다.' }); return null; }
   if (note.status !== 'pending') { res.status(409).json({ error: '이미 처리된 쪽지입니다.', roomId: note.room_id }); return null; }
+  if (isBlockedBetween(note.from_id, note.to_id) || !isActiveUser(note.from_id)) { res.status(404).json({ error: '쪽지를 찾을 수 없습니다.' }); return null; }
   return note;
 }
 
@@ -569,8 +704,9 @@ app.get('/api/rooms', auth, (req, res) => {
     JOIN users u ON u.id = CASE WHEN r.user_a = ? THEN r.user_b ELSE r.user_a END
     LEFT JOIN profiles p ON p.user_id = u.id
     LEFT JOIN locations l ON l.user_id = u.id
-    WHERE r.user_a = ? OR r.user_b = ?
-    ORDER BY COALESCE(last_at, r.created_at) DESC`).all(req.user.id, req.user.id, req.user.id, req.user.id);
+    WHERE (r.user_a = ? OR r.user_b = ?)
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ? AND b.blocked_id = u.id)
+    ORDER BY COALESCE(last_at, r.created_at) DESC`).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
   res.json(rows.map((r) => ({
     id: r.id, lastMessage: r.last_message, lastAt: r.last_at, unread: r.unread,
     other: { id: r.other_id, nickname: r.nickname, photo: r.photo ? `/uploads/${r.photo}` : null, region: r.region },
@@ -579,14 +715,16 @@ app.get('/api/rooms', auth, (req, res) => {
 
 app.get('/api/rooms/:id/messages', auth, (req, res) => {
   const room = getRoomForUser(Number(req.params.id), req.user.id);
-  if (!room) return res.status(404).json({ error: '채팅방을 찾을 수 없습니다.' });
+  if (!room || iBlocked(req.user.id, room.otherId)) return res.status(404).json({ error: '채팅방을 찾을 수 없습니다.' });
   const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
   const messages = db.prepare(`
     SELECT id, sender_id AS senderId, content, created_at AS createdAt, read_at AS readAt
     FROM messages WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT 50`).all(room.id, before).reverse();
   markRead(room, req.user.id);
   const other = userWithProfile.get(room.otherId);
-  res.json({ room: { id: room.id, other: publicUser(other) }, messages });
+  // 상대가 나를 차단했거나 정지된 경우 대화 내용은 보이지만 메시지는 보낼 수 없다
+  const canSend = !isBlockedBetween(req.user.id, room.otherId) && isActiveUser(room.otherId);
+  res.json({ room: { id: room.id, other: publicUser(other), canSend }, messages });
 });
 
 function markRead(room, userId) {
@@ -595,11 +733,122 @@ function markRead(room, userId) {
 }
 
 app.get('/api/badges', auth, (req, res) => {
-  const notes = db.prepare(`SELECT COUNT(*) AS c FROM notes WHERE to_id = ? AND status = 'pending' AND read_at IS NULL`).get(req.user.id).c;
   const chats = db.prepare(`
     SELECT COUNT(*) AS c FROM messages m JOIN rooms r ON r.id = m.room_id
-    WHERE (r.user_a = ? OR r.user_b = ?) AND m.sender_id != ? AND m.read_at IS NULL`).get(req.user.id, req.user.id, req.user.id).c;
-  res.json({ notes, chats });
+    WHERE (r.user_a = ? OR r.user_b = ?) AND m.sender_id != ? AND m.read_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ? AND b.blocked_id = m.sender_id)`).get(req.user.id, req.user.id, req.user.id, req.user.id).c;
+  const notes = db.prepare(`SELECT COUNT(*) AS c FROM notes n WHERE n.to_id = ? AND n.status = 'pending' AND n.read_at IS NULL
+    AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = ? AND b.blocked_id = n.from_id)`).get(req.user.id, req.user.id).c;
+  res.json({ notes, chats, reports: req.user.isAdmin ? db.prepare(`SELECT COUNT(*) AS c FROM reports WHERE status = 'pending'`).get().c : 0 });
+});
+
+// ---- 차단
+
+function blockUser(blockerId, blockedId) {
+  db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id) VALUES (?, ?)').run(blockerId, blockedId);
+  // 서로 주고받은 대기 중인 쪽지는 거절 처리
+  db.prepare(`UPDATE notes SET status = 'declined' WHERE status = 'pending' AND ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?))`)
+    .run(blockerId, blockedId, blockedId, blockerId);
+  io.to(`user:${blockedId}`).emit('rooms:changed');
+}
+
+app.get('/api/blocks', auth, (req, res) => {
+  res.json(db.prepare(`
+    SELECT u.id, u.nickname, p.photo, b.created_at AS blockedAt FROM blocks b
+    JOIN users u ON u.id = b.blocked_id LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE b.blocker_id = ? ORDER BY b.created_at DESC`).all(req.user.id)
+    .map((r) => ({ ...r, photo: r.photo ? `/uploads/${r.photo}` : null })));
+});
+
+app.post('/api/blocks', auth, (req, res) => {
+  const userId = Number(req.body.userId);
+  if (userId === req.user.id || !db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId)) return res.status(400).json({ error: '차단할 수 없는 사용자입니다.' });
+  blockUser(req.user.id, userId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/blocks/:userId', auth, (req, res) => {
+  db.prepare('DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?').run(req.user.id, Number(req.params.userId));
+  res.json({ ok: true });
+});
+
+// ---- 신고
+
+function suspendUser(userId, reason) {
+  db.prepare(`UPDATE users SET suspended_at = COALESCE(suspended_at, datetime('now')), suspended_reason = ? WHERE id = ?`).run(reason, userId);
+  io.in(`user:${userId}`).disconnectSockets(true);
+}
+
+app.post('/api/reports', auth, (req, res) => {
+  const targetId = Number(req.body.targetId);
+  const reason = pick(req.body.reason, REPORT_REASONS);
+  const detail = clean(req.body.detail, 1000);
+  const target = db.prepare('SELECT id, nickname FROM users WHERE id = ?').get(targetId);
+  if (!target || targetId === req.user.id) return res.status(400).json({ error: '신고할 수 없는 사용자입니다.' });
+  if (!reason) return res.status(400).json({ error: '신고 사유를 선택해 주세요.' });
+  if (reason === '기타' && !detail) return res.status(400).json({ error: '기타 사유는 내용을 입력해 주세요.' });
+  if (db.prepare(`SELECT 1 FROM reports WHERE reporter_id = ? AND target_id = ? AND status = 'pending'`).get(req.user.id, targetId)) {
+    return res.status(409).json({ error: '이미 신고한 사용자예요. 운영팀이 검토 중입니다.' });
+  }
+
+  // 채팅방에서 신고하면 최근 대화 30개를 증거로 함께 저장 (관리자만 열람)
+  let evidence = null;
+  const room = req.body.roomId ? getRoomForUser(Number(req.body.roomId), req.user.id) : null;
+  if (room && room.otherId === targetId) {
+    evidence = JSON.stringify(db.prepare(`SELECT sender_id, content, created_at FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT 30`).all(room.id)
+      .reverse().map((m) => ({ from: m.sender_id === targetId ? 'target' : 'reporter', content: m.content, at: m.created_at })));
+  }
+  db.prepare('INSERT INTO reports (reporter_id, target_id, target_nickname, reason, detail, evidence) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, targetId, target.nickname, reason, detail, evidence);
+  if (req.body.block === true) blockUser(req.user.id, targetId);
+
+  const reporters = db.prepare(`SELECT COUNT(DISTINCT reporter_id) AS c FROM reports
+    WHERE target_id = ? AND status != 'dismissed' AND created_at > datetime('now', '-30 days')`).get(targetId).c;
+  if (reporters >= AUTO_SUSPEND_REPORTERS) suspendUser(targetId, `신고 누적 (${reporters}명) – 운영팀 검토 중`);
+  res.json({ ok: true, blocked: req.body.block === true });
+});
+
+// ---- 관리자
+
+app.get('/api/admin/reports', auth, requireAdmin, (req, res) => {
+  const status = ['pending', 'dismissed', 'actioned'].includes(req.query.status) ? req.query.status : 'pending';
+  const rows = db.prepare(`
+    SELECT r.*, ru.nickname AS reporter_nickname, ru.email AS reporter_email,
+      tu.email AS target_email, tu.suspended_at AS target_suspended_at, tu.suspended_reason AS target_suspended_reason,
+      (SELECT COUNT(*) FROM reports x WHERE x.target_id = r.target_id) AS target_report_count
+    FROM reports r LEFT JOIN users ru ON ru.id = r.reporter_id LEFT JOIN users tu ON tu.id = r.target_id
+    WHERE r.status = ? ORDER BY r.id DESC LIMIT 200`).all(status);
+  res.json(rows.map((r) => ({
+    id: r.id, reason: r.reason, detail: r.detail, status: r.status, createdAt: r.created_at, handledAt: r.handled_at,
+    evidence: r.evidence ? JSON.parse(r.evidence) : null,
+    reporter: { id: r.reporter_id, nickname: r.reporter_nickname || '(탈퇴)', email: r.reporter_email },
+    target: { id: r.target_id, nickname: r.target_nickname, email: r.target_email, deleted: r.target_id == null,
+      suspended: r.target_suspended_at ? { at: r.target_suspended_at, reason: r.target_suspended_reason } : null, reportCount: r.target_report_count },
+  })));
+});
+
+app.post('/api/admin/reports/:id/resolve', auth, requireAdmin, (req, res) => {
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(Number(req.params.id));
+  if (!report) return res.status(404).json({ error: '신고를 찾을 수 없습니다.' });
+  if (req.body.action === 'suspend') {
+    if (report.target_id) suspendUser(report.target_id, clean(req.body.reason, 200) || `운영정책 위반 (${report.reason})`);
+    db.prepare(`UPDATE reports SET status = 'actioned', handled_at = datetime('now') WHERE target_id = ? AND status = 'pending'`).run(report.target_id);
+    db.prepare(`UPDATE reports SET status = 'actioned', handled_at = datetime('now') WHERE id = ?`).run(report.id);
+  } else if (req.body.action === 'dismiss') {
+    db.prepare(`UPDATE reports SET status = 'dismissed', handled_at = datetime('now') WHERE id = ?`).run(report.id);
+  } else {
+    return res.status(400).json({ error: '알 수 없는 처리입니다.' });
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/suspended', auth, requireAdmin, (req, res) => {
+  res.json(db.prepare('SELECT id, nickname, email, suspended_at AS suspendedAt, suspended_reason AS reason FROM users WHERE suspended_at IS NOT NULL ORDER BY suspended_at DESC').all());
+});
+
+app.post('/api/admin/users/:id/unsuspend', auth, requireAdmin, (req, res) => {
+  db.prepare('UPDATE users SET suspended_at = NULL, suspended_reason = NULL WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 // SPA fallback
@@ -623,10 +872,12 @@ io.use((socket, next) => {
   }));
   try {
     socket.userId = jwt.verify(cookies.token || '', JWT_SECRET).uid;
-    next();
   } catch {
-    next(new Error('unauthorized'));
+    return next(new Error('unauthorized'));
   }
+  const u = db.prepare('SELECT suspended_at, terms_agreed_at FROM users WHERE id = ?').get(socket.userId);
+  if (!u || u.suspended_at || !u.terms_agreed_at) return next(new Error('forbidden'));
+  next();
 });
 
 io.on('connection', (socket) => {
@@ -637,6 +888,8 @@ io.on('connection', (socket) => {
     const text = clean(content, 1000);
     if (!room) return ack({ error: '채팅방을 찾을 수 없습니다.' });
     if (!text) return ack({ error: '메시지를 입력해 주세요.' });
+    if (!isActiveUser(socket.userId)) return ack({ error: '이용이 정지된 계정입니다.' });
+    if (isBlockedBetween(socket.userId, room.otherId) || !isActiveUser(room.otherId)) return ack({ error: '메시지를 보낼 수 없는 상대예요.' });
     const { lastInsertRowid } = db.prepare('INSERT INTO messages (room_id, sender_id, content) VALUES (?, ?, ?)').run(room.id, socket.userId, text);
     const msg = db.prepare('SELECT id, room_id AS roomId, sender_id AS senderId, content, created_at AS createdAt, read_at AS readAt FROM messages WHERE id = ?').get(lastInsertRowid);
     io.to(`user:${room.user_a}`).to(`user:${room.user_b}`).emit('chat:message', msg);
@@ -654,9 +907,19 @@ io.on('connection', (socket) => {
   });
 });
 
+// 보관기간이 지난 위치 이용 기록 · 처리 완료 신고 기록 삭제 (하루 한 번)
+function purgeExpiredRecords() {
+  db.prepare(`DELETE FROM location_logs WHERE created_at < datetime('now', ?)`).run(`-${LOCATION_LOG_KEEP_DAYS} days`);
+  db.prepare(`DELETE FROM reports WHERE status != 'pending' AND handled_at < datetime('now', ?)`).run(`-${REPORT_KEEP_DAYS} days`);
+}
+purgeExpiredRecords();
+setInterval(purgeExpiredRecords, 24 * 3600 * 1000).unref();
+
 server.listen(PORT, () => {
-  console.log(`🏋️  동네 헬스메이트 running at http://localhost:${PORT}`);
+  console.log(`🏋️  짐짝(GYMJJAK) running at http://localhost:${PORT}`);
   if (ALLOW_MANUAL_LOCATION) console.log('   (개발 모드: 지도 클릭으로 동네 인증 허용)');
+  console.log(`   관리자: ${ADMIN_EMAILS.length ? ADMIN_EMAILS.join(', ') : '없음 (ADMIN_EMAILS 설정)'}`);
+  if (!SERVICE.contactEmail) console.log('   ⚠️  CONTACT_EMAIL 이 비어 있어요. 약관/개인정보처리방침에 표시할 문의 이메일을 설정하세요.');
   const providers = enabledProviders();
   if (providers.length) console.log(`   소셜 로그인(선택): ${providers.join(', ')}`);
   providers.forEach((p) => console.log(`     ${p} Redirect URI: ${callbackUrl(p)}`));

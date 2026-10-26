@@ -1,7 +1,7 @@
 // 데모 데이터: 강남역 주변에 헬스메이트 8명을 생성한다. (비밀번호: test1234)
 // 사용법: npm run seed  [-- 위도 경도 동네이름]
 const bcrypt = require('bcryptjs');
-const { db } = require('./db');
+const { db, TERMS_VERSION } = require('./db');
 
 const [lat0 = 37.4979, lng0 = 127.0276, region = '역삼동'] = process.argv.slice(2).map((v, i) => (i < 2 ? Number(v) : v));
 const hash = bcrypt.hashSync('test1234', 10);
@@ -18,13 +18,14 @@ const people = [
   ['파워리프터J', 'male', 35, '5년 이상', 160, 220, 250, '역삼 짐박스', '월,화,목,금', '저녁', '파워리프팅 대회 준비 중. 고중량 같이 치실 분!', 'male', null, null, 500, '대회 준비하시는 분 환영'],
 ];
 
-const insUser = db.prepare('INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)');
+// 데모 계정은 현재 약관 버전에 동의한 상태로 만든다
+const insUser = db.prepare(`INSERT INTO users (email, password_hash, nickname, terms_agreed_at, terms_version) VALUES (?, ?, ?, datetime('now'), '${TERMS_VERSION}')`);
 const insProfile = db.prepare(`INSERT INTO profiles (user_id, gender, age, career, bench, squat, deadlift, gym_name, workout_days, workout_times, bio,
   pref_gender, pref_age_min, pref_age_max, pref_min_total, pref_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 const insLoc = db.prepare('INSERT INTO locations (user_id, lat, lng, region, district) VALUES (?, ?, ?, ?, ?)');
 
 people.forEach(([nickname, ...p], i) => {
-  const email = `demo${i + 1}@healthmate.local`;
+  const email = `demo${i + 1}@gymjjak.local`;
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) return;
   const { lastInsertRowid: id } = insUser.run(email, hash, nickname);
   insProfile.run(id, ...p);
@@ -32,4 +33,4 @@ people.forEach(([nickname, ...p], i) => {
   const dist = 0.004 + (i % 4) * 0.005; // 약 0.4 ~ 2km
   insLoc.run(id, lat0 + Math.sin(angle) * dist, lng0 + Math.cos(angle) * dist, region, '');
 });
-console.log(`✅ 데모 유저 ${people.length}명 생성 완료 (demo1~${people.length}@healthmate.local / test1234)`);
+console.log(`✅ 데모 유저 ${people.length}명 생성 완료 (demo1~${people.length}@gymjjak.local / test1234)`);
