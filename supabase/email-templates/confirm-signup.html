@@ -1,0 +1,24 @@
+<!-- 제목(Subject): [짐짝] 이메일 인증을 완료해 주세요 -->
+<div style="margin:0;padding:32px 16px;background:#f5f6f8;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;padding:32px 28px;border:1px solid #e5e7eb;">
+    <div style="font-size:22px;font-weight:800;color:#15803d;">🏋️ 짐짝 <span style="font-size:12px;color:#6b7280;letter-spacing:1px;">GYMJJAK</span></div>
+    <h1 style="font-size:20px;color:#111827;margin:24px 0 8px;">이메일 인증을 완료해 주세요</h1>
+    <p style="font-size:15px;line-height:1.6;color:#374151;margin:0 0 24px;">
+      짐짝에 가입해 주셔서 감사해요!<br>
+      아래 버튼을 누르면 <b>{{ .Email }}</b> 인증이 완료되고 바로 이용할 수 있어요.
+    </p>
+    <a href="{{ .ConfirmationURL }}"
+       style="display:block;text-align:center;background:#16a34a;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:14px 0;border-radius:10px;">
+      이메일 인증하기
+    </a>
+    <p style="font-size:13px;line-height:1.6;color:#6b7280;margin:24px 0 0;">
+      버튼이 눌리지 않으면 아래 주소를 복사해 브라우저에 붙여넣어 주세요.<br>
+      <a href="{{ .ConfirmationURL }}" style="color:#15803d;word-break:break-all;">{{ .ConfirmationURL }}</a>
+    </p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+    <p style="font-size:12px;line-height:1.6;color:#9ca3af;margin:0;">
+      본인이 가입하지 않았다면 이 메일을 무시해 주세요. 인증하지 않으면 계정이 활성화되지 않아요.<br>
+      짐짝 · 우리 동네 헬스메이트 찾기
+    </p>
+  </div>
+</div>

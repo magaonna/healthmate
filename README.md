@@ -36,6 +36,30 @@ server.js         로컬 미리보기용 정적 서버 (의존성 없음)
    ```
    → 그 계정으로 로그인하면 [내 정보 → 🛡️ 신고 관리] 메뉴가 생깁니다.
 
+## 인증 메일을 한글 · '짐짝' 이름으로 보내기
+
+**① 보내는 사람 이름 "짐짝"** – Supabase 기본 메일은 보내는 사람이 `Supabase Auth` 로 고정이라, **SMTP(메일 발송 서비스)를 연결**해야 바꿀 수 있습니다.
+**Authentication → Emails → SMTP Settings** → Enable custom SMTP
+
+| 항목 | 네이버 메일로 보낼 때 (도메인 없이 바로 가능) | 내 도메인이 있을 때 (Resend 등, 권장) |
+| --- | --- | --- |
+| Sender email | `내아이디@naver.com` | `noreply@내도메인.com` |
+| Sender name | `짐짝` | `짐짝` |
+| Host / Port | `smtp.naver.com` / `465` | `smtp.resend.com` / `465` |
+| Username | 네이버 아이디 | `resend` |
+| Password | 네이버 비밀번호 (2단계 인증 사용 시 **애플리케이션 비밀번호**) | Resend API 키 |
+
+- 네이버: 메일 → 환경설정 → **POP3/IMAP 설정** 에서 **IMAP/SMTP 사용** 을 켜야 합니다. 개인 메일 계정은 하루 발송량이 제한되므로 사용자가 많아지면 도메인 + Resend 같은 서비스로 옮기세요.
+- SMTP 를 연결하면 **Authentication → Rate Limits** 에서 시간당 메일 발송 수도 늘릴 수 있습니다.
+
+**② 메일 내용 한글** – **Authentication → Emails → Templates** 에서 템플릿별로 제목과 내용(Source)을 바꿉니다. 각 파일 맨 위 주석에 제목이 있습니다.
+
+| 템플릿 | 파일 | 제목 |
+| --- | --- | --- |
+| Confirm signup | `supabase/email-templates/confirm-signup.html` | [짐짝] 이메일 인증을 완료해 주세요 |
+| Reset password | `supabase/email-templates/reset-password.html` | [짐짝] 비밀번호 재설정 안내 |
+| Change email address | `supabase/email-templates/change-email.html` | [짐짝] 이메일 주소 변경 확인 |
+
 ## 2. 설정 (`public/config.js`)
 
 | 항목 | 설명 |
