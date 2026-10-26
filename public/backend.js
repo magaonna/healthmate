@@ -10,15 +10,22 @@
 
   // 서버 함수가 보내는 코드형 오류 (화면 이동으로 처리)
   const CODES = ['NOT_AUTHENTICATED', 'SUSPENDED', 'NEED_CONSENT', 'NEED_VERIFY'];
+  // Supabase 인증 오류 → 한국어 안내. (오류 코드 · 원문 메시지 둘 다 확인)
   const AUTH_MESSAGES = [
-    [/invalid login credentials/i, '이메일 또는 비밀번호가 올바르지 않습니다.'],
-    [/email not confirmed/i, '이메일 인증을 완료해 주세요. 가입할 때 받은 메일의 링크를 눌러 주세요.'],
-    [/user already registered/i, '이미 가입된 이메일입니다.'],
-    [/database error saving new user/i, '가입할 수 없는 이메일이에요. 고객센터로 문의해 주세요.'],
-    [/password should be at least/i, '비밀번호는 8자 이상이어야 합니다.'],
-    [/(rate limit|too many requests|security purposes)/i, '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.'],
-    [/unable to validate email|invalid email|email address .* is invalid/i, '올바른 이메일을 입력해 주세요.'],
-    [/failed to fetch|network/i, '서버에 연결할 수 없어요. 인터넷 연결을 확인해 주세요.'],
+    [/invalid_credentials|invalid login credentials/i, '이메일 또는 비밀번호가 올바르지 않습니다.'],
+    [/email_not_confirmed|email not confirmed/i, '이메일 인증을 완료해 주세요. 가입할 때 받은 메일의 링크를 눌러 주세요.'],
+    [/user_already_exists|user already registered/i, '이미 가입된 이메일입니다.'],
+    [/email_address_not_authorized|email address not authorized/i,
+      '인증 메일을 보낼 수 없는 주소예요. (운영자: Supabase 기본 메일은 팀원 이메일로만 발송돼요. SMTP를 연결하거나 Confirm email 을 꺼 주세요)'],
+    [/over_email_send_rate_limit|email rate limit/i, '인증 메일 발송 한도를 넘었어요. 잠시 후 다시 시도해 주세요. (운영자: Supabase SMTP 설정 필요)'],
+    [/error sending (confirmation|magic link|recovery)? ?email|smtp/i, '인증 메일 발송에 실패했어요. (운영자: Supabase 메일 발송(SMTP) 설정을 확인해 주세요)'],
+    [/signup_disabled|signups not allowed/i, '지금은 회원가입이 꺼져 있어요. (운영자: Supabase Auth 에서 회원가입 허용 필요)'],
+    [/email_provider_disabled|email logins are disabled/i, '이메일 가입이 꺼져 있어요. (운영자: Supabase Auth → Email 사용 설정 필요)'],
+    [/database error saving new user|unexpected_failure/i, '가입 처리 중 오류가 발생했어요. 이용이 제한된 이메일이거나 서버 설정 문제일 수 있어요.'],
+    [/weak_password|password should|password is known/i, '비밀번호가 너무 약해요. 영문·숫자를 섞어 8자 이상으로 입력해 주세요.'],
+    [/over_request_rate_limit|rate limit|too many requests|security purposes/i, '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.'],
+    [/email_address_invalid|validation_failed|unable to validate email|invalid email|email address .* is invalid/i, '사용할 수 없는 이메일 주소예요. 다른 이메일로 시도해 주세요.'],
+    [/failed to fetch|network|load failed/i, '서버에 연결할 수 없어요. 인터넷 연결을 확인해 주세요.'],
   ];
 
   function toError(e) {
@@ -27,8 +34,11 @@
     if (CODES.includes(msg)) err.code = msg;
     const room = /^ROOM_EXISTS:(\d+)$/.exec(msg);
     if (room) { err.message = '이미 채팅 중인 상대입니다.'; err.roomId = Number(room[1]); }
-    for (const [re, ko] of AUTH_MESSAGES) if (re.test(msg)) { err.message = ko; break; }
+    const probe = `${e?.code || ''} ${msg}`;
+    const hit = AUTH_MESSAGES.find(([re]) => re.test(probe));
+    if (hit) err.message = hit[1];
     if (/JWT|not authenticated/i.test(msg)) err.code = 'NOT_AUTHENTICATED';
+    if (hit || !CODES.includes(msg)) console.warn('[Supabase]', e?.status || '', e?.code || '', msg); // 원인 확인용 (브라우저 개발자 도구 Console)
     return err;
   }
 

@@ -22,7 +22,7 @@
   function toast(msg) {
     const t = document.getElementById('toast');
     t.textContent = msg; t.classList.add('show');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), msg.length > 40 ? 6000 : 2400); // 긴 안내는 오래 표시
   }
 
   const genderLabel = { male: '남성', female: '여성' };

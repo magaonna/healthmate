@@ -62,7 +62,7 @@ npm start        # http://localhost:3000 (설치할 패키지 없음)
 > 브라우저 위치 정보(GPS)는 **HTTPS 또는 localhost** 에서만 동작합니다.
 
 **배포** – `public/` 폴더를 정적 호스팅에 올리면 끝입니다.
-- **Vercel**: GitHub 저장소 연결 → Framework: Other → Output Directory: `public`
+- **Vercel**: GitHub 저장소 연결 → 그대로 Deploy (`vercel.json` 이 `public` 폴더를 배포하도록 설정되어 있음)
 - **Netlify**: Publish directory: `public` (또는 public 폴더를 드래그 앤 드롭)
 
 배포 후 할 일: Supabase **URL Configuration** 에 배포 주소 추가, 카카오맵을 쓰면 카카오 개발자 콘솔 **플랫폼 → Web** 에 배포 도메인 추가.
@@ -73,6 +73,18 @@ npm start        # http://localhost:3000 (설치할 패키지 없음)
 2. **플랫폼 → Web** 에 사이트 도메인 등록 (`http://localhost:3000`, 배포 주소)
 3. **카카오맵** 사용 설정 켜기
 4. **JavaScript 키**를 `config.js` 의 `kakaoJsKey` 에 입력 (브라우저용 키라 공개돼도 등록한 도메인에서만 동작)
+
+## 회원가입이 안 될 때
+
+화면에 뜨는 안내 문구로 원인을 알 수 있습니다. (자세한 원인은 브라우저 개발자 도구 → Console 의 `[Supabase]` 줄)
+
+| 안내 문구 | 원인 · 해결 |
+| --- | --- |
+| 인증 메일을 보낼 수 없는 주소예요 | Supabase 기본 메일은 **프로젝트 팀원 이메일로만** 발송됩니다. **Authentication → Emails → SMTP Settings** 에서 메일 서비스를 연결하거나, 테스트 중에는 **Confirm email** 을 끄세요 |
+| 인증 메일 발송 한도를 넘었어요 / 발송에 실패했어요 | 기본 메일은 시간당 발송 수가 매우 적습니다. SMTP 연결 필요 |
+| 지금은 회원가입이 꺼져 있어요 | **Authentication → Sign In / Providers** 에서 **Allow new users to sign up** 켜기 |
+| 메일의 인증 링크가 localhost 로 열림 | **Authentication → URL Configuration** 의 **Site URL** 을 Vercel 주소로 바꾸고 Redirect URLs 에도 추가 |
+| Supabase 설정이 필요해요 (화면 전체) | `supabase/schema.sql` 을 SQL Editor 에서 실행 |
 
 ## 보안 구조
 
