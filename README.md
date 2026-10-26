@@ -2,7 +2,7 @@
 
 우리 동네에서 같이 운동할 헬스메이트를 찾는 지도 기반 웹 서비스입니다.
 
-**흐름:** 이메일 회원가입 → GPS 동네 인증 → 헬스 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
+**흐름:** 카카오 로그인 → GPS 동네 인증 → 헬스 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
 
 **구조:** 화면(`public/`) + **Supabase** (로그인 · 데이터베이스 · 사진 저장 · 실시간). 별도 서버가 필요 없어서 `public/` 폴더만 정적 호스팅에 올리면 됩니다.
 
@@ -30,11 +30,45 @@ server.js         로컬 미리보기용 정적 서버 (의존성 없음)
 3. **이메일 인증** – Supabase 는 기본으로 가입 시 **인증 메일**을 보냅니다 (아무 메일로 가짜 계정 만드는 것 방지).
    - ⚠️ Supabase 기본 메일 발송은 **시간당 발송 수가 매우 적고 테스트용**입니다. 실제 출시 전에 **Authentication → Emails → SMTP Settings** 에서 메일 발송 서비스(Resend, AWS SES, 네이버 웍스 등)를 연결하세요.
    - 혼자 테스트할 때 메일 없이 바로 가입되게 하려면: **Authentication → Sign In / Providers → Email → Confirm email** 끄기
-4. **관리자 지정** – 가입한 뒤 SQL Editor 에서 실행:
+4. **관리자 지정** – 가입한 뒤 SQL Editor 에서 실행 (카카오 계정은 아래 '카카오 로그인 설정' 참고):
    ```sql
    insert into public.admins (user_id) select id from auth.users where email = '관리자@이메일.com';
    ```
    → 그 계정으로 로그인하면 [내 정보 → 🛡️ 신고 관리] 메뉴가 생깁니다.
+
+## 카카오 로그인 설정
+
+지금 `config.js` 는 **카카오 로그인만** 쓰도록 되어 있습니다 (`authProviders: ['kakao']`, `emailLogin: false`).
+처음 카카오로 로그인하면 자동 가입 → 닉네임 확인 · 약관 동의 → 동네 인증 순서로 진행됩니다.
+
+**① 카카오 개발자 콘솔** ([developers.kakao.com](https://developers.kakao.com/console/app))
+1. **애플리케이션 추가하기** → 앱 이름 `짐짝`
+2. **앱 설정 → 플랫폼 → Web 플랫폼 등록** → 사이트 도메인: Vercel 주소 (예: `https://gymjjak.vercel.app`), `http://localhost:3000`
+3. **제품 설정 → 카카오 로그인** → **활성화 ON**
+4. 같은 화면 **Redirect URI** 등록 → `https://oyjujpezcruxphcsnobf.supabase.co/auth/v1/callback`
+   (사이트 주소가 아니라 **Supabase 주소**입니다)
+5. **카카오 로그인 → 동의항목**
+   - 닉네임(profile_nickname): **필수 동의**
+   - 프로필 사진(profile_image): 선택 동의 (선택)
+   - 카카오계정(이메일)(account_email): **선택 동의** – 이 항목은 **비즈 앱** 전환이 필요합니다. [앱 설정 → 비즈니스] 에서 **개인 개발자 비즈 앱** 으로 전환(본인인증만 하면 됨)한 뒤 설정하세요.
+6. **카카오 로그인 → 보안 → Client Secret** → 코드 생성 → **활성화 상태: 사용함**
+7. **앱 설정 → 앱 키** 에서 **REST API 키** 확인
+
+**② Supabase 대시보드**
+1. **Authentication → Sign In / Providers → Kakao** → Enable
+   - **REST API Key** 칸: ①-7 의 REST API 키
+   - **Client Secret Code** 칸: ①-6 의 Client Secret
+   - (화면에 **Allow users without an email** 옵션이 있으면 켜 두세요 – 이메일 동의를 안 한 사용자도 가입 가능)
+2. **Authentication → URL Configuration**
+   - Site URL: Vercel 주소
+   - Redirect URLs: Vercel 주소와 `http://localhost:3000` 추가 (로그인 후 이 주소로 돌아옵니다)
+
+**관리자 지정** (카카오 계정은 이메일이 없을 수 있으므로 닉네임으로):
+```sql
+insert into public.admins (user_id) select id from public.profiles where nickname = '내 닉네임';
+```
+
+> 이메일 가입을 다시 쓰려면 `config.js` 에서 `emailLogin: true` 로 바꾸면 됩니다.
 
 ## 인증 메일을 한글 · '짐짝' 이름으로 보내기
 
@@ -66,7 +100,8 @@ server.js         로컬 미리보기용 정적 서버 (의존성 없음)
 | --- | --- |
 | `supabaseUrl` / `supabaseKey` | Supabase **Project URL** 과 **Publishable key** (이미 입력됨). ⚠️ secret / service_role 키는 절대 넣지 마세요 |
 | `kakaoJsKey` | (선택) 카카오맵 JavaScript 키. 넣으면 지도와 동네 이름이 카카오 기준. 비우면 OpenStreetMap |
-| `authProviders` | (선택) `['kakao', 'google']` – Supabase **Authentication → Providers** 에서 켠 소셜 로그인 버튼 표시 |
+| `authProviders` | 로그인 버튼: `['kakao']` (현재), `['kakao', 'google']` 등 – Supabase **Authentication → Providers** 에서 켠 것만 |
+| `emailLogin` | `false` 면 이메일 가입/로그인 화면을 숨기고 소셜 로그인만 사용 (현재 false) |
 | `service` | 운영자(상호) · 문의 이메일 · 개인정보 보호책임자 – 약관/개인정보처리방침에 표시. **출시 전 꼭 채우기** |
 
 DB 쪽 설정은 SQL 로 바꿉니다:

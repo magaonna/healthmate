@@ -133,13 +133,14 @@ create table if not exists public.location_logs (
   created_at  timestamptz not null default now()
 );
 
--- 정지 상태로 탈퇴한 계정 이메일 (재가입 방지, SHA-256 해시만 보관)
+-- 정지 상태로 탈퇴한 계정의 이메일 · 카카오 회원번호 (재가입 방지, SHA-256 해시만 보관)
 create table if not exists public.banned_emails (
   email_hash text primary key,
   created_at timestamptz not null default now()
 );
 
--- 관리자: insert into public.admins (user_id) select id from auth.users where email = '관리자@이메일';
+-- 관리자: insert into public.admins (user_id) select id from public.profiles where nickname = '관리자 닉네임';
+--   (이메일로 가입했다면: select id from auth.users where email = '관리자@이메일')
 create table if not exists public.admins (
   user_id uuid primary key references auth.users (id) on delete cascade
 );
@@ -198,6 +199,17 @@ $$;
 create or replace function public._email_hash(email text) returns text
 language sql immutable as $$
   select encode(sha256(convert_to(lower(btrim(email)), 'UTF8')), 'hex')
+$$;
+
+-- 재가입 방지용 키: 이메일 + 소셜 계정(카카오 회원번호 등). 소셜 로그인은 user_metadata 에 provider_id / sub 가 들어있음
+create or replace function public._ban_keys(email text, app_meta jsonb, user_meta jsonb) returns text[]
+language sql immutable as $$
+  select array_remove(array[
+    case when nullif(btrim(email), '') is not null then public._email_hash(email) end,
+    case when coalesce(app_meta->>'provider', 'email') <> 'email'
+              and coalesce(user_meta->>'provider_id', user_meta->>'sub') is not null
+         then public._email_hash((app_meta->>'provider') || ':' || coalesce(user_meta->>'provider_id', user_meta->>'sub')) end
+  ], null)
 $$;
 
 create or replace function public._haversine(lat1 float8, lng1 float8, lat2 float8, lng2 float8) returns float8
@@ -356,7 +368,8 @@ declare
   meta jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
   agreed boolean;
 begin
-  if new.email is not null and exists (select 1 from public.banned_emails where email_hash = public._email_hash(new.email)) then
+  if exists (select 1 from public.banned_emails
+             where email_hash = any(public._ban_keys(new.email, new.raw_app_meta_data, new.raw_user_meta_data))) then
     raise exception 'BANNED_EMAIL';
   end if;
   perform public._ensure_profile(new.id);
@@ -892,13 +905,15 @@ create or replace function public.delete_my_account() returns void
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
-  em text;
+  keys text[];
 begin
   if uid is null then raise exception 'NOT_AUTHENTICATED'; end if;
-  select u.email into em from auth.users u
-    join public.account_status s on s.user_id = u.id where u.id = uid and s.suspended_at is not null;
-  if em is not null then
-    insert into public.banned_emails (email_hash) values (public._email_hash(em)) on conflict do nothing;
+  -- 정지 상태로 탈퇴하면 같은 이메일 · 카카오 계정으로 재가입 불가
+  select public._ban_keys(u.email, u.raw_app_meta_data, u.raw_user_meta_data) into keys
+    from auth.users u join public.account_status s on s.user_id = u.id
+   where u.id = uid and s.suspended_at is not null;
+  if keys is not null then
+    insert into public.banned_emails (email_hash) select unnest(keys) on conflict do nothing;
   end if;
   delete from auth.users where id = uid;
 end $$;

@@ -157,7 +157,11 @@
   function viewAuth(mode) {
     setChrome({ bars: false });
     const providers = state.config.loginProviders; // config.js 의 authProviders (Supabase 에서 켠 소셜 로그인)
-    const signup = mode === 'signup';
+    const emailLogin = state.config.emailLogin;     // config.js 의 emailLogin (false 면 소셜 로그인만)
+    const signup = mode === 'signup' && emailLogin;
+    const social = `
+      ${providers.includes('kakao') ? `<button type="button" class="btn block social kakao" data-oauth="kakao">${KAKAO_ICON}카카오로 시작하기</button>` : ''}
+      ${providers.includes('google') ? `<button type="button" class="btn block social google" data-oauth="google">${GOOGLE_ICON}Google로 시작하기</button>` : ''}`;
     $app.innerHTML = '';
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
@@ -166,6 +170,7 @@
           <h1 class="brand-title">짐짝 <small>GYMJJAK</small></h1>
           <div class="muted">우리 동네에서 같이 운동할 헬스메이트 찾기</div>
         </div>
+        ${emailLogin ? `
         <form class="card stack" id="authForm">
           <label class="field"><span>이메일</span><input type="email" name="email" required autocomplete="email"></label>
           <label class="field"><span>비밀번호${signup ? ' (8자 이상)' : ''}</span><input type="password" name="password" required minlength="${signup ? 8 : 1}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
@@ -175,16 +180,22 @@
           <div class="small muted" style="text-align:center">
             ${signup ? '이미 계정이 있나요? <a class="link" href="#/login">로그인</a>' : '처음이신가요? <a class="link" href="#/signup">회원가입</a>'}
           </div>
-          ${providers.length ? `
-            <div class="divider small muted">또는</div>
-            ${providers.includes('kakao') ? `<button type="button" class="btn block social kakao" data-oauth="kakao">${KAKAO_ICON}카카오로 시작하기</button>` : ''}
-            ${providers.includes('google') ? `<button type="button" class="btn block social google" data-oauth="google">${GOOGLE_ICON}Google로 시작하기</button>` : ''}` : ''}
-        </form>
+          ${providers.length ? `<div class="divider small muted">또는</div>${social}` : ''}
+        </form>` : `
+        <div class="card stack">
+          ${providers.length ? `${social}
+            <div class="small muted" style="text-align:center">처음이면 자동으로 가입돼요.<br>로그인 후 닉네임을 정하고 약관에 동의하면 시작할 수 있어요.</div>`
+          : '<div class="banner small" style="display:block">로그인 방법이 설정되지 않았어요. <code>config.js</code> 의 <code>authProviders</code> 를 확인해 주세요.</div>'}
+        </div>`}
         ${policyFooter()}
       </div></div>`));
+    $app.querySelectorAll('[data-oauth]').forEach((b) => b.addEventListener('click', () => {
+      b.disabled = true;
+      Backend.oauth(b.dataset.oauth).catch((e) => { toast(e.message); b.disabled = false; });
+    }));
+    if (!emailLogin) return;
     const form = document.getElementById('authForm');
     if (signup) bindAgreements(form);
-    form.querySelectorAll('[data-oauth]').forEach((b) => b.addEventListener('click', () => Backend.oauth(b.dataset.oauth).catch((e) => toast(e.message))));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (signup && !agreementsOk(form)) return toast('필수 약관에 모두 동의해 주세요.');
@@ -1108,6 +1119,7 @@
       verifyValidDays: settings.verifyValidDays,
       kakaoJsKey: C.kakaoJsKey || '',
       loginProviders: C.authProviders || [],
+      emailLogin: C.emailLogin !== false,
       reportReasons: ['부적절한 사진·프로필', '욕설·비하·혐오 표현', '성희롱·불쾌한 연락', '스팸·광고·영업', '사기·금전 요구', '미성년자 의심', '기타'],
       service: { ...C.service, termsVersion: settings.termsVersion, geocoder: C.kakaoJsKey ? 'kakao' : 'osm',
                  locationLogKeepDays: 183, reportKeepDays: 365, verifyValidDays: settings.verifyValidDays },

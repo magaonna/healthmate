@@ -10,8 +10,10 @@ window.GYMJJAK_CONFIG = {
   // (선택) 카카오맵 JavaScript 키. 비워두면 OpenStreetMap 지도 사용
   kakaoJsKey: '',
 
-  // (선택) Supabase 대시보드 → Authentication → Providers 에서 켠 소셜 로그인: 'kakao', 'google'
-  authProviders: [],
+  // 로그인 방법. Supabase 대시보드 → Authentication → Sign In / Providers 에서 켠 것만 넣으세요: 'kakao', 'google'
+  authProviders: ['kakao'],
+  // 이메일 회원가입/로그인 화면 사용 여부 (false = 카카오 로그인만)
+  emailLogin: false,
 
   // 운영 정보 – 이용약관 · 개인정보처리방침 · 정지 안내에 표시 (출시 전 꼭 채우세요)
   service: {
