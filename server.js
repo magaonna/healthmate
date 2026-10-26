@@ -17,6 +17,7 @@ const MAX_RADIUS_KM = 10;
 const MAX_GPS_ACCURACY_M = 1000;       // 이보다 부정확한 위치는 인증 거부
 const ALLOW_MANUAL_LOCATION = process.env.ALLOW_MANUAL_LOCATION === 'true'; // 개발용: 지도 클릭으로 위치 지정 허용
 const KAKAO_REST_KEY = process.env.KAKAO_REST_KEY || '';
+const KAKAO_JS_KEY = process.env.KAKAO_JS_KEY || ''; // 카카오맵 JavaScript 키 (브라우저에 노출되는 키, 카카오 콘솔에서 도메인 제한)
 
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
   const file = path.join(DATA_DIR, '.jwt_secret');
@@ -245,7 +246,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/config', (req, res) => {
   res.json({
     days: DAYS, times: TIMES, careers: CAREERS, ageMin: AGE_MIN, ageMax: AGE_MAX, max1rm: MAX_1RM_KG,
-    allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS,
+    allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS, kakaoJsKey: KAKAO_JS_KEY,
   });
 });
 

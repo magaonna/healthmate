@@ -118,9 +118,13 @@ textarea { resize: vertical; min-height: 90px; }
 .user-card .bio { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 3px 0 6px; }
 .user-card .tags { display: flex; gap: 4px; flex-wrap: wrap; }
 
-.mate-marker { background: var(--green); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 34px !important; height: 34px !important; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.3); overflow: hidden; }
+.mate-pin { position: relative; width: 34px; height: 34px; cursor: pointer; }
+.mate-marker { background: var(--green); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.3); overflow: hidden; }
 .mate-marker img { width: 100%; height: 100%; object-fit: cover; }
-.me-marker { background: #2563eb; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 6px rgba(37,99,235,.25); }
+.mate-label { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: #111827; color: #fff; font-size: 12px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.mate-pin:hover { z-index: 10; }
+.mate-pin:hover .mate-label { opacity: 1; }
+.me-marker { width: 16px; height: 16px; background: #2563eb; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 6px rgba(37,99,235,.25); }
 
 /* ---------- modal */
 .modal { position: fixed; inset: 0; z-index: 1500; display: flex; align-items: flex-end; justify-content: center; }

@@ -53,7 +53,7 @@
     $app.classList.toggle('full', full);
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
     document.getElementById('topRegion').textContent = state.me?.location?.region ? `📍 ${state.me.location.region}` : '';
-    if (state.map && !document.getElementById('map')) { state.map.remove(); state.map = null; }
+    if (state.map) { state.map.destroy(); state.map = null; }
   }
 
   // ------------------------------------------------------------ socket & badges
@@ -154,7 +154,7 @@
   }
 
   // ------------------------------------------------------------ views: 동네 인증
-  function viewVerify() {
+  async function viewVerify() {
     setChrome({ tab: 'me' });
     const loc = state.me.location;
     const manual = state.config.allowManualLocation;
@@ -173,11 +173,10 @@
       </div>`));
 
     const start = state.me.lat != null ? [state.me.lat, state.me.lng] : [37.5665, 126.978];
-    const map = state.map = L.map('verifyMap').setView(start, state.me.lat != null ? 15 : 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-    let marker = state.me.lat != null ? L.marker(start).addTo(map) : null;
+    await MateMap.load(state.config);
+    const map = state.map = MateMap.create(document.getElementById('verifyMap'), { center: start, zoom: state.me.lat != null ? 15 : 12 });
+    if (state.me.lat != null) map.setPin(start);
     let picked = null;
-    const setMarker = (latlng) => { if (marker) marker.setLatLng(latlng); else marker = L.marker(latlng).addTo(map); };
 
     async function submit(body) {
       const r = document.getElementById('verifyResult');
@@ -197,7 +196,7 @@
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          setMarker([lat, lng]); map.setView([lat, lng], 15);
+          map.setPin([lat, lng]); map.setView([lat, lng], 15);
           submit({ lat, lng, accuracy });
         },
         (err) => { document.getElementById('verifyResult').textContent = '❌ 위치 정보를 가져올 수 없어요: ' + (err.code === 1 ? '위치 권한을 허용해 주세요.' : err.message); },
@@ -206,7 +205,7 @@
     });
     if (manual) {
       const mb = document.getElementById('manualBtn');
-      map.on('click', (e) => { picked = e.latlng; setMarker(picked); mb.disabled = false; });
+      map.onClick((latlng) => { picked = latlng; map.setPin([latlng.lat, latlng.lng]); mb.disabled = false; });
       mb.addEventListener('click', () => picked && submit({ lat: picked.lat, lng: picked.lng, manual: true }));
     }
   }
@@ -246,10 +245,9 @@
         </div>
       </div>`));
 
-    const map = state.map = L.map('map', { zoomControl: true });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-    const markers = L.layerGroup().addTo(map);
-    let circle = null;
+    await MateMap.load(state.config);
+    const me = [state.me.lat, state.me.lng];
+    const map = state.map = MateMap.create(document.getElementById('map'), { center: me, zoom: 14 });
 
     document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(); });
     document.getElementById('genderSel').addEventListener('change', (e) => { f.gender = e.target.value || null; render(); });
@@ -269,13 +267,8 @@
         if (e.code === 'NEED_VERIFY') { location.hash = '#/verify'; return; }
         throw e;
       }
-      const me = [state.me.lat, state.me.lng];
-      map.setView(me, 14);
-      if (circle) circle.remove();
-      markers.clearLayers();
-      circle = L.circle(me, { radius: state.nearby.radius * 1000, color: '#16a34a', weight: 1, fillOpacity: 0.05 }).addTo(map);
-      L.marker(me, { icon: L.divIcon({ className: 'me-marker', iconSize: [16, 16] }), interactive: false }).addTo(markers);
-      map.fitBounds(circle.getBounds(), { padding: [10, 10] });
+      map.setMe(me);
+      map.showRadius(me, state.nearby.radius);
       render();
     }
 
@@ -285,13 +278,13 @@
         && (!f.minTotal || u.total >= f.minTotal)
         && (!f.days.length || f.days.some((d) => u.workoutDays.includes(d)))
         && (!f.matchOnly || u.meetsMyPrefs));
-      markers.eachLayer((l) => { if (l.options.userId) markers.removeLayer(l); });
-      users.forEach((u) => {
-        const icon = L.divIcon({ className: 'mate-marker', html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : '🏋️', iconSize: [34, 34] });
-        L.marker([u.lat, u.lng], { icon, userId: u.id }).addTo(markers)
-          .bindTooltip(esc(u.nickname) + (u.total ? ` · 3대 ${u.total}` : ''), { direction: 'top', offset: [0, -16] })
-          .on('click', () => showProfile(u.id));
-      });
+      map.setMates(users.map((u) => ({
+        lat: u.lat,
+        lng: u.lng,
+        html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : '🏋️',
+        label: u.nickname + (u.total ? ` · 3대 ${u.total}` : ''),
+        onClick: () => showProfile(u.id).catch((e) => toast(e.message)),
+      })));
       const list = document.getElementById('mateList');
       if (!users.length) {
         list.innerHTML = `<div class="empty"><span class="big">🏋️</span>반경 ${state.nearby.radius}km 안에 조건에 맞는 헬스메이트가 아직 없어요.<br>필터를 줄이거나 반경을 넓혀 보세요!</div>`;
