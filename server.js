@@ -1,0 +1,493 @@
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const http = require('http');
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const { Server } = require('socket.io');
+const { db, DATA_DIR } = require('./db');
+
+const PORT = Number(process.env.PORT) || 3000;
+const VERIFY_VALID_DAYS = 30;          // 동네 인증 유효기간
+const DEFAULT_RADIUS_KM = 3;
+const MAX_RADIUS_KM = 10;
+const MAX_GPS_ACCURACY_M = 1000;       // 이보다 부정확한 위치는 인증 거부
+const ALLOW_MANUAL_LOCATION = process.env.ALLOW_MANUAL_LOCATION === 'true'; // 개발용: 지도 클릭으로 위치 지정 허용
+const KAKAO_REST_KEY = process.env.KAKAO_REST_KEY || '';
+
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  const file = path.join(DATA_DIR, '.jwt_secret');
+  if (!fs.existsSync(file)) fs.writeFileSync(file, crypto.randomBytes(48).toString('hex'), { mode: 0o600 });
+  return fs.readFileSync(file, 'utf8').trim();
+})();
+
+const WORKOUTS = ['웨이트', '러닝', '크로스핏', '요가', '필라테스', '수영', '클라이밍', '자전거', '홈트', '등산'];
+const TIMES = ['새벽', '오전', '오후', '저녁', '밤'];
+const LEVELS = ['입문', '초급', '중급', '고급'];
+const GENDERS = ['male', 'female', 'other'];
+const AGE_GROUPS = ['10대', '20대', '30대', '40대', '50대 이상'];
+
+// ---------------------------------------------------------------- helpers
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// 다른 유저에게 정확한 위치를 노출하지 않도록 약 300m 격자에 맞추고, 유저별 고정 오프셋을 더한다.
+function approximate(lat, lng, userId) {
+  const grid = 0.003;
+  const h = crypto.createHash('sha256').update(`${userId}:${JWT_SECRET}`).digest();
+  const offLat = (h[0] / 255 - 0.5) * grid * 0.8;
+  const offLng = (h[1] / 255 - 0.5) * grid * 0.8;
+  return {
+    lat: Math.round(lat / grid) * grid + offLat,
+    lng: Math.round(lng / grid) * grid + offLng,
+  };
+}
+
+function isVerified(loc) {
+  if (!loc) return false;
+  const verified = new Date(loc.verified_at.replace(' ', 'T') + 'Z');
+  return Date.now() - verified.getTime() < VERIFY_VALID_DAYS * 86400 * 1000;
+}
+
+async function reverseGeocode(lat, lng) {
+  // 1순위: 카카오 로컬 API (행정동 단위, 키가 있을 때)
+  if (KAKAO_REST_KEY) {
+    try {
+      const r = await fetch(`https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x=${lng}&y=${lat}`, {
+        headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (r.ok) {
+        const j = await r.json();
+        const doc = j.documents.find((d) => d.region_type === 'H') || j.documents[0];
+        if (doc) return { region: doc.region_3depth_name || doc.region_2depth_name, district: `${doc.region_1depth_name} ${doc.region_2depth_name}`.trim() };
+      }
+    } catch (e) { console.warn('kakao reverse geocode failed:', e.message); }
+  }
+  // 2순위: OpenStreetMap Nominatim
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&accept-language=ko`, {
+      headers: { 'User-Agent': 'healthmate-local/1.0' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (r.ok) {
+      const a = (await r.json()).address || {};
+      const region = a.quarter || a.suburb || a.neighbourhood || a.village || a.town || a.city_district || a.borough;
+      const district = [a.city || a.province || a.state, a.borough || a.city_district || a.county].filter(Boolean).join(' ');
+      if (region) return { region, district };
+    }
+  } catch (e) { console.warn('nominatim reverse geocode failed:', e.message); }
+  return null;
+}
+
+const clean = (v, max = 500) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const pick = (v, allowed) => (allowed.includes(v) ? v : null);
+
+function publicUser(row, viewerLoc) {
+  const out = {
+    id: row.id,
+    nickname: row.nickname,
+    gender: row.gender,
+    ageGroup: row.age_group,
+    bio: row.bio || '',
+    workouts: row.workouts ? row.workouts.split(',').filter(Boolean) : [],
+    preferredTime: row.preferred_time,
+    level: row.level,
+    gymName: row.gym_name || '',
+    photo: row.photo ? `/uploads/${row.photo}` : null,
+    region: row.region || null,
+  };
+  if (row.lat != null) {
+    Object.assign(out, approximate(row.lat, row.lng, row.id));
+    if (viewerLoc) out.distanceKm = Math.round(haversineKm(viewerLoc.lat, viewerLoc.lng, row.lat, row.lng) * 10) / 10;
+  }
+  return out;
+}
+
+const getLocation = (userId) => db.prepare('SELECT * FROM locations WHERE user_id = ?').get(userId);
+const userWithProfile = db.prepare(`
+  SELECT u.id, u.nickname, p.*, l.lat, l.lng, l.region, l.verified_at
+  FROM users u
+  LEFT JOIN profiles p ON p.user_id = u.id
+  LEFT JOIN locations l ON l.user_id = u.id
+  WHERE u.id = ?`);
+
+function roomFor(a, b) {
+  const [x, y] = a < b ? [a, b] : [b, a];
+  return db.prepare('SELECT * FROM rooms WHERE user_a = ? AND user_b = ?').get(x, y);
+}
+
+// ---------------------------------------------------------------- app
+
+const app = express();
+app.disable('x-powered-by');
+app.use(express.json({ limit: '100kb' }));
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/vendor/leaflet', express.static(path.join(__dirname, 'node_modules/leaflet/dist'), { maxAge: '30d' }));
+app.use('/uploads', express.static(path.join(DATA_DIR, 'uploads'), { maxAge: '7d' }));
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: path.join(DATA_DIR, 'uploads'),
+    filename: (req, file, cb) => cb(null, `${req.user.id}-${Date.now()}${{ 'image/png': '.png', 'image/webp': '.webp' }[file.mimetype] || '.jpg'}`),
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)),
+});
+
+const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 30 * 86400 * 1000 };
+
+function issueToken(res, userId) {
+  res.cookie('token', jwt.sign({ uid: userId }, JWT_SECRET, { expiresIn: '30d' }), COOKIE_OPTS);
+}
+
+function auth(req, res, next) {
+  try {
+    const { uid } = jwt.verify(req.cookies.token || '', JWT_SECRET);
+    const user = db.prepare('SELECT id, email, nickname FROM users WHERE id = ?').get(uid);
+    if (!user) throw new Error('no user');
+    req.user = user;
+    next();
+  } catch {
+    res.status(401).json({ error: '로그인이 필요합니다.' });
+  }
+}
+
+function requireVerified(req, res, next) {
+  const loc = getLocation(req.user.id);
+  if (!isVerified(loc)) return res.status(403).json({ error: '동네 인증이 필요합니다.', code: 'NEED_VERIFY' });
+  req.loc = loc;
+  next();
+}
+
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// ---- 인증
+
+app.post('/api/auth/signup', wrap(async (req, res) => {
+  const email = clean(req.body.email, 200).toLowerCase();
+  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const nickname = clean(req.body.nickname, 20);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: '올바른 이메일을 입력해 주세요.' });
+  if (password.length < 8) return res.status(400).json({ error: '비밀번호는 8자 이상이어야 합니다.' });
+  if (nickname.length < 2) return res.status(400).json({ error: '닉네임은 2자 이상이어야 합니다.' });
+  if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) return res.status(409).json({ error: '이미 가입된 이메일입니다.' });
+
+  const hash = await bcrypt.hash(password, 10);
+  const { lastInsertRowid } = db.prepare('INSERT INTO users (email, password_hash, nickname) VALUES (?, ?, ?)').run(email, hash, nickname);
+  db.prepare('INSERT INTO profiles (user_id) VALUES (?)').run(lastInsertRowid);
+  issueToken(res, Number(lastInsertRowid));
+  res.json({ ok: true });
+}));
+
+app.post('/api/auth/login', wrap(async (req, res) => {
+  const email = clean(req.body.email, 200).toLowerCase();
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
+    return res.status(401).json({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
+  }
+  issueToken(res, user.id);
+  res.json({ ok: true });
+}));
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('token', { ...COOKIE_OPTS, maxAge: undefined });
+  res.json({ ok: true });
+});
+
+app.get('/api/config', (req, res) => {
+  res.json({ workouts: WORKOUTS, times: TIMES, levels: LEVELS, ageGroups: AGE_GROUPS, allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS });
+});
+
+app.get('/api/me', auth, (req, res) => {
+  const row = userWithProfile.get(req.user.id);
+  const loc = getLocation(req.user.id);
+  const me = publicUser(row);
+  // 본인에게는 정확한 좌표를 돌려준다
+  if (loc) { me.lat = loc.lat; me.lng = loc.lng; }
+  res.json({
+    ...me,
+    email: req.user.email,
+    isPublic: !!row.is_public,
+    location: loc ? { region: loc.region, district: loc.district, verifiedAt: loc.verified_at, verified: isVerified(loc) } : null,
+    profileComplete: !!(row.workouts && row.bio),
+  });
+});
+
+// ---- 동네 인증
+
+app.post('/api/location/verify', auth, wrap(async (req, res) => {
+  const lat = Number(req.body.lat);
+  const lng = Number(req.body.lng);
+  const accuracy = Number(req.body.accuracy);
+  const manual = req.body.manual === true;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return res.status(400).json({ error: '위치 정보가 올바르지 않습니다.' });
+  }
+  if (manual && !ALLOW_MANUAL_LOCATION) return res.status(400).json({ error: '수동 위치 지정은 허용되지 않습니다. GPS로 인증해 주세요.' });
+  if (!manual && (!Number.isFinite(accuracy) || accuracy > MAX_GPS_ACCURACY_M)) {
+    return res.status(400).json({ error: `위치 정확도가 너무 낮습니다(${Math.round(accuracy) || '?'}m). 실외에서 다시 시도해 주세요.` });
+  }
+
+  const geo = await reverseGeocode(lat, lng);
+  const region = geo?.region || `${lat.toFixed(3)}, ${lng.toFixed(3)} 부근`;
+  const district = geo?.district || '';
+  db.prepare(`
+    INSERT INTO locations (user_id, lat, lng, region, district, verified_at) VALUES (?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET lat = excluded.lat, lng = excluded.lng, region = excluded.region,
+      district = excluded.district, verified_at = excluded.verified_at`).run(req.user.id, lat, lng, region, district);
+  res.json({ ok: true, region, district });
+}));
+
+// ---- 프로필
+
+app.put('/api/profile', auth, upload.single('photo'), (req, res) => {
+  const b = req.body;
+  const nickname = clean(b.nickname, 20);
+  const workouts = (Array.isArray(b.workouts) ? b.workouts : String(b.workouts || '').split(','))
+    .map((w) => w.trim()).filter((w) => WORKOUTS.includes(w));
+  const prev = db.prepare('SELECT photo FROM profiles WHERE user_id = ?').get(req.user.id);
+  let photo = prev?.photo || null;
+  if (req.file) {
+    if (photo) fs.rm(path.join(DATA_DIR, 'uploads', photo), () => {});
+    photo = req.file.filename;
+  } else if (b.removePhoto === 'true' && photo) {
+    fs.rm(path.join(DATA_DIR, 'uploads', photo), () => {});
+    photo = null;
+  }
+
+  if (nickname.length >= 2) db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+  db.prepare(`
+    INSERT INTO profiles (user_id, gender, age_group, bio, workouts, preferred_time, level, gym_name, photo, is_public, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET gender = excluded.gender, age_group = excluded.age_group, bio = excluded.bio,
+      workouts = excluded.workouts, preferred_time = excluded.preferred_time, level = excluded.level,
+      gym_name = excluded.gym_name, photo = excluded.photo, is_public = excluded.is_public, updated_at = excluded.updated_at`).run(
+    req.user.id,
+    pick(b.gender, GENDERS), pick(b.ageGroup, AGE_GROUPS), clean(b.bio, 500), workouts.join(','),
+    pick(b.preferredTime, TIMES), pick(b.level, LEVELS), clean(b.gymName, 50), photo,
+    b.isPublic === 'false' ? 0 : 1,
+  );
+  res.json({ ok: true });
+});
+
+app.get('/api/profiles/nearby', auth, requireVerified, (req, res) => {
+  const radius = Math.min(Math.max(Number(req.query.radius) || DEFAULT_RADIUS_KM, 0.5), MAX_RADIUS_KM);
+  const { lat, lng } = req.loc;
+  const dLat = radius / 111;
+  const dLng = radius / (111 * Math.cos((lat * Math.PI) / 180));
+  const rows = db.prepare(`
+    SELECT u.id, u.nickname, p.*, l.lat, l.lng, l.region, l.verified_at
+    FROM users u
+    JOIN profiles p ON p.user_id = u.id
+    JOIN locations l ON l.user_id = u.id
+    WHERE u.id != ? AND p.is_public = 1
+      AND l.verified_at > datetime('now', ?)
+      AND l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ?`).all(
+    req.user.id, `-${VERIFY_VALID_DAYS} days`, lat - dLat, lat + dLat, lng - dLng, lng + dLng);
+
+  const list = rows
+    .filter((r) => haversineKm(lat, lng, r.lat, r.lng) <= radius)
+    .map((r) => publicUser(r, req.loc))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+  res.json({ radius, center: approximate(lat, lng, req.user.id), region: req.loc.region, users: list });
+});
+
+app.get('/api/profiles/:id', auth, requireVerified, (req, res) => {
+  const row = userWithProfile.get(Number(req.params.id));
+  if (!row || (!row.is_public && row.id !== req.user.id)) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
+  const user = publicUser(row, req.loc);
+  const room = roomFor(req.user.id, row.id);
+  const pending = db.prepare(`SELECT id FROM notes WHERE from_id = ? AND to_id = ? AND status = 'pending'`).get(req.user.id, row.id);
+  res.json({ ...user, roomId: room?.id || null, pendingNote: !!pending });
+});
+
+// ---- 쪽지
+
+app.post('/api/notes', auth, requireVerified, (req, res) => {
+  const toId = Number(req.body.toId);
+  const content = clean(req.body.content, 300);
+  if (!content) return res.status(400).json({ error: '쪽지 내용을 입력해 주세요.' });
+  if (toId === req.user.id) return res.status(400).json({ error: '자기 자신에게는 보낼 수 없습니다.' });
+  const target = db.prepare('SELECT u.id FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = ? AND p.is_public = 1').get(toId);
+  if (!target) return res.status(404).json({ error: '상대방을 찾을 수 없습니다.' });
+
+  const room = roomFor(req.user.id, toId);
+  if (room) return res.status(409).json({ error: '이미 채팅 중인 상대입니다.', roomId: room.id });
+  if (db.prepare(`SELECT 1 FROM notes WHERE from_id = ? AND to_id = ? AND status = 'pending'`).get(req.user.id, toId)) {
+    return res.status(409).json({ error: '이미 보낸 쪽지가 답변을 기다리고 있습니다.' });
+  }
+  const recent = db.prepare(`SELECT COUNT(*) AS c FROM notes WHERE from_id = ? AND created_at > datetime('now', '-1 day')`).get(req.user.id).c;
+  if (recent >= 20) return res.status(429).json({ error: '하루에 보낼 수 있는 쪽지 수(20개)를 초과했습니다.' });
+
+  const { lastInsertRowid } = db.prepare('INSERT INTO notes (from_id, to_id, content) VALUES (?, ?, ?)').run(req.user.id, toId, content);
+  io.to(`user:${toId}`).emit('note:new', { id: Number(lastInsertRowid), from: req.user.nickname });
+  res.json({ ok: true, id: Number(lastInsertRowid) });
+});
+
+app.get('/api/notes', auth, (req, res) => {
+  const sent = req.query.box === 'sent';
+  const rows = db.prepare(`
+    SELECT n.*, u.nickname, p.photo, l.region
+    FROM notes n
+    JOIN users u ON u.id = ${sent ? 'n.to_id' : 'n.from_id'}
+    LEFT JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN locations l ON l.user_id = u.id
+    WHERE ${sent ? 'n.from_id' : 'n.to_id'} = ?
+    ORDER BY n.id DESC LIMIT 100`).all(req.user.id);
+  if (!sent) db.prepare('UPDATE notes SET read_at = datetime(\'now\') WHERE to_id = ? AND read_at IS NULL').run(req.user.id);
+  res.json(rows.map((n) => ({
+    id: n.id, content: n.content, status: n.status, roomId: n.room_id, createdAt: n.created_at,
+    other: { id: sent ? n.to_id : n.from_id, nickname: n.nickname, photo: n.photo ? `/uploads/${n.photo}` : null, region: n.region },
+  })));
+});
+
+function getOwnPendingNote(req, res) {
+  const note = db.prepare('SELECT * FROM notes WHERE id = ? AND to_id = ?').get(Number(req.params.id), req.user.id);
+  if (!note) { res.status(404).json({ error: '쪽지를 찾을 수 없습니다.' }); return null; }
+  if (note.status !== 'pending') { res.status(409).json({ error: '이미 처리된 쪽지입니다.', roomId: note.room_id }); return null; }
+  return note;
+}
+
+app.post('/api/notes/:id/accept', auth, (req, res) => {
+  const note = getOwnPendingNote(req, res);
+  if (!note) return;
+  const [a, b] = note.from_id < note.to_id ? [note.from_id, note.to_id] : [note.to_id, note.from_id];
+  db.prepare('INSERT OR IGNORE INTO rooms (user_a, user_b) VALUES (?, ?)').run(a, b);
+  const room = roomFor(a, b);
+  // 쪽지 내용을 채팅방의 첫 메시지로 옮긴다
+  db.prepare('INSERT INTO messages (room_id, sender_id, content, created_at) VALUES (?, ?, ?, ?)').run(room.id, note.from_id, note.content, note.created_at);
+  db.prepare(`UPDATE notes SET status = 'accepted', room_id = ? WHERE id = ?`).run(room.id, note.id);
+  // 서로 주고받은 다른 대기 쪽지도 함께 정리
+  db.prepare(`UPDATE notes SET status = 'accepted', room_id = ? WHERE status = 'pending' AND ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?))`)
+    .run(room.id, note.from_id, note.to_id, note.to_id, note.from_id);
+  io.to(`user:${note.from_id}`).emit('note:accepted', { roomId: room.id, by: req.user.nickname });
+  res.json({ ok: true, roomId: room.id });
+});
+
+app.post('/api/notes/:id/decline', auth, (req, res) => {
+  const note = getOwnPendingNote(req, res);
+  if (!note) return;
+  db.prepare(`UPDATE notes SET status = 'declined' WHERE id = ?`).run(note.id);
+  res.json({ ok: true });
+});
+
+// ---- 채팅
+
+function getRoomForUser(roomId, userId) {
+  const room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId);
+  if (!room || (room.user_a !== userId && room.user_b !== userId)) return null;
+  room.otherId = room.user_a === userId ? room.user_b : room.user_a;
+  return room;
+}
+
+app.get('/api/rooms', auth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT r.id, u.id AS other_id, u.nickname, p.photo, l.region,
+      (SELECT content FROM messages WHERE room_id = r.id ORDER BY id DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM messages WHERE room_id = r.id ORDER BY id DESC LIMIT 1) AS last_at,
+      (SELECT COUNT(*) FROM messages WHERE room_id = r.id AND sender_id != ? AND read_at IS NULL) AS unread
+    FROM rooms r
+    JOIN users u ON u.id = CASE WHEN r.user_a = ? THEN r.user_b ELSE r.user_a END
+    LEFT JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN locations l ON l.user_id = u.id
+    WHERE r.user_a = ? OR r.user_b = ?
+    ORDER BY COALESCE(last_at, r.created_at) DESC`).all(req.user.id, req.user.id, req.user.id, req.user.id);
+  res.json(rows.map((r) => ({
+    id: r.id, lastMessage: r.last_message, lastAt: r.last_at, unread: r.unread,
+    other: { id: r.other_id, nickname: r.nickname, photo: r.photo ? `/uploads/${r.photo}` : null, region: r.region },
+  })));
+});
+
+app.get('/api/rooms/:id/messages', auth, (req, res) => {
+  const room = getRoomForUser(Number(req.params.id), req.user.id);
+  if (!room) return res.status(404).json({ error: '채팅방을 찾을 수 없습니다.' });
+  const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
+  const messages = db.prepare(`
+    SELECT id, sender_id AS senderId, content, created_at AS createdAt, read_at AS readAt
+    FROM messages WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT 50`).all(room.id, before).reverse();
+  markRead(room, req.user.id);
+  const other = userWithProfile.get(room.otherId);
+  res.json({ room: { id: room.id, other: publicUser(other) }, messages });
+});
+
+function markRead(room, userId) {
+  const { changes } = db.prepare(`UPDATE messages SET read_at = datetime('now') WHERE room_id = ? AND sender_id != ? AND read_at IS NULL`).run(room.id, userId);
+  if (changes) io.to(`user:${room.otherId}`).emit('chat:read', { roomId: room.id });
+}
+
+app.get('/api/badges', auth, (req, res) => {
+  const notes = db.prepare(`SELECT COUNT(*) AS c FROM notes WHERE to_id = ? AND status = 'pending' AND read_at IS NULL`).get(req.user.id).c;
+  const chats = db.prepare(`
+    SELECT COUNT(*) AS c FROM messages m JOIN rooms r ON r.id = m.room_id
+    WHERE (r.user_a = ? OR r.user_b = ?) AND m.sender_id != ? AND m.read_at IS NULL`).get(req.user.id, req.user.id, req.user.id).c;
+  res.json({ notes, chats });
+});
+
+// SPA fallback
+app.get(/^\/(?!api|uploads|socket\.io).*/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (err instanceof multer.MulterError) return res.status(400).json({ error: '사진은 5MB 이하만 올릴 수 있습니다.' });
+  res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+});
+
+// ---------------------------------------------------------------- socket.io (실시간 채팅)
+
+const server = http.createServer(app);
+const io = new Server(server);
+
+io.use((socket, next) => {
+  const cookies = Object.fromEntries((socket.handshake.headers.cookie || '').split(';').map((c) => {
+    const i = c.indexOf('=');
+    return [c.slice(0, i).trim(), decodeURIComponent(c.slice(i + 1))];
+  }));
+  try {
+    socket.userId = jwt.verify(cookies.token || '', JWT_SECRET).uid;
+    next();
+  } catch {
+    next(new Error('unauthorized'));
+  }
+});
+
+io.on('connection', (socket) => {
+  socket.join(`user:${socket.userId}`);
+
+  socket.on('chat:send', ({ roomId, content } = {}, ack = () => {}) => {
+    const room = getRoomForUser(Number(roomId), socket.userId);
+    const text = clean(content, 1000);
+    if (!room) return ack({ error: '채팅방을 찾을 수 없습니다.' });
+    if (!text) return ack({ error: '메시지를 입력해 주세요.' });
+    const { lastInsertRowid } = db.prepare('INSERT INTO messages (room_id, sender_id, content) VALUES (?, ?, ?)').run(room.id, socket.userId, text);
+    const msg = db.prepare('SELECT id, room_id AS roomId, sender_id AS senderId, content, created_at AS createdAt, read_at AS readAt FROM messages WHERE id = ?').get(lastInsertRowid);
+    io.to(`user:${room.user_a}`).to(`user:${room.user_b}`).emit('chat:message', msg);
+    ack({ ok: true, message: msg });
+  });
+
+  socket.on('chat:read', ({ roomId } = {}) => {
+    const room = getRoomForUser(Number(roomId), socket.userId);
+    if (room) markRead(room, socket.userId);
+  });
+
+  socket.on('chat:typing', ({ roomId } = {}) => {
+    const room = getRoomForUser(Number(roomId), socket.userId);
+    if (room) io.to(`user:${room.otherId}`).emit('chat:typing', { roomId: room.id });
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`🏋️  동네 헬스메이트 running at http://localhost:${PORT}`);
+  if (ALLOW_MANUAL_LOCATION) console.log('   (개발 모드: 지도 클릭으로 동네 인증 허용)');
+});

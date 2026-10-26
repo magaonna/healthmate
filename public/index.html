@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>동네 헬스메이트</title>
+  <meta name="theme-color" content="#16a34a" />
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header id="topbar" class="hidden">
+    <a href="#/" class="brand">🏋️ 동네 헬스메이트</a>
+    <span id="topRegion" class="region-chip"></span>
+  </header>
+
+  <main id="app"></main>
+
+  <nav id="tabbar" class="hidden">
+    <a href="#/" data-tab="home"><span class="ic">📍</span>동네</a>
+    <a href="#/notes" data-tab="notes"><span class="ic">✉️</span>쪽지<b class="badge" id="badgeNotes"></b></a>
+    <a href="#/chats" data-tab="chats"><span class="ic">💬</span>채팅<b class="badge" id="badgeChats"></b></a>
+    <a href="#/me" data-tab="me"><span class="ic">👤</span>내 정보</a>
+  </nav>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-sheet" id="modalBody"></div>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

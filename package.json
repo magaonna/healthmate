@@ -1,0 +1,25 @@
+{
+  "name": "healthmate",
+  "version": "1.0.0",
+  "description": "동네 헬스메이트 찾기",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "ALLOW_MANUAL_LOCATION=true node --watch server.js",
+    "seed": "node seed.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "leaflet": "^1.9.4",
+    "multer": "^2.5.0",
+    "socket.io": "^4.8.4"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
