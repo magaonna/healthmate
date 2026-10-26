@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "ALLOW_MANUAL_LOCATION=true ALLOW_EMAIL_LOGIN=true node --watch server.js",
+    "dev": "node --watch server.js --dev",
     "seed": "node seed.js"
   },
   "author": "",

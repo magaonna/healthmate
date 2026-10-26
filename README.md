@@ -9,8 +9,15 @@
 ```bash
 npm install
 npm run seed      # (선택) 강남역 주변 데모 유저 8명 생성: demo1~8@healthmate.local / test1234
-npm start         # http://localhost:3000
-npm run dev       # 개발 모드: 이메일 로그인(데모 계정) + 지도 클릭으로 동네 인증 + 자동 재시작
+npm run dev       # 개발 모드: 키 없이 데모 계정(이메일)으로 로그인 + 지도 클릭으로 동네 인증 + 자동 재시작
+npm start         # 운영 모드: 카카오/구글 로그인만 허용 → 아래 .env 설정 필요
+```
+
+**키 설정 (.env)** – `.env.example` 을 `.env` 로 복사하고 카카오·구글 키를 채운 뒤 서버를 다시 시작하세요. `.env` 는 git 에 올라가지 않습니다.
+
+```bash
+copy .env.example .env    # Windows
+cp .env.example .env      # Mac / Linux
 ```
 
 Node.js 22.13 이상이 필요합니다(내장 `node:sqlite` 사용, 별도 DB 설치 불필요).
@@ -19,13 +26,15 @@ Node.js 22.13 이상이 필요합니다(내장 `node:sqlite` 사용, 별도 DB �
 
 ## 환경 변수
 
+환경 변수 또는 `.env` 파일로 지정합니다.
+
 | 변수 | 설명 |
 | --- | --- |
 | `PORT` | 서버 포트 (기본 3000) |
 | `BASE_URL` | 서비스 주소 (기본 `http://localhost:3000`). 소셜 로그인 Redirect URI 생성에 사용 → 배포 시 `https://내도메인.com` 으로 지정 |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 구글 로그인 OAuth 클라이언트 |
 | `KAKAO_CLIENT_SECRET` | 카카오 로그인 Client Secret (콘솔에서 사용 설정한 경우만) |
-| `ALLOW_EMAIL_LOGIN` | `true` 면 이메일 회원가입/로그인 허용 (개발/데모용, 운영에선 끄세요) |
+| `ALLOW_EMAIL_LOGIN` | `true` 면 이메일 회원가입/로그인 허용 (개발/데모용, 운영에선 끄세요. `npm run dev` 는 자동으로 켬) |
 | `JWT_SECRET` | 로그인 토큰 서명 키. 없으면 `data/.jwt_secret` 에 자동 생성 |
 | `KAKAO_JS_KEY` | **카카오맵 JavaScript 키.** 설정하면 지도가 카카오맵으로 표시됨. 없으면 OpenStreetMap으로 대체 |
 | `KAKAO_REST_KEY` | 카카오 REST API 키. **카카오 로그인** + 동네 인증 시 행정동 이름 조회(없으면 OpenStreetMap Nominatim)에 사용 |
@@ -50,14 +59,7 @@ Node.js 22.13 이상이 필요합니다(내장 `node:sqlite` 사용, 별도 DB �
 4. 발급된 클라이언트 ID/보안 비밀번호를 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 으로 지정
 5. 테스트 중에는 동의 화면의 '테스트 사용자'만 로그인 가능 → 출시 전 **앱 게시** 필요
 
-```bash
-BASE_URL=http://localhost:3000 \
-KAKAO_REST_KEY=... KAKAO_JS_KEY=... \
-GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
-npm start
-```
-
-서버를 시작하면 콘솔에 등록해야 할 Redirect URI 가 출력됩니다. 키가 하나도 없으면 로그인 화면에 설정 안내가 표시됩니다.
+발급받은 값은 `.env` 에 입력합니다. 서버를 시작하면 콘솔에 등록해야 할 Redirect URI 가 출력됩니다. 키가 하나도 없으면 로그인 화면에 설정 안내가 표시됩니다.
 
 ## 카카오맵 설정
 
@@ -66,9 +68,7 @@ npm start
 3. **카카오맵** 사용 설정을 활성화 (앱 설정 → 제품 설정 → 카카오맵)
 4. **앱 키** 에서 키를 복사해 환경 변수로 지정
 
-```bash
-KAKAO_JS_KEY=JavaScript키 KAKAO_REST_KEY=REST_API키 npm start
-```
+JavaScript 키는 `.env` 의 `KAKAO_JS_KEY`, REST API 키는 `KAKAO_REST_KEY` 에 입력합니다.
 
 - `KAKAO_JS_KEY` – 지도 표시용 (브라우저에 노출되는 키라 도메인 등록으로 보호됨)
 - `KAKAO_REST_KEY` – 동네 인증 시 좌표 → 행정동 이름 변환용 (서버에서만 사용)

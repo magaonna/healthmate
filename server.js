@@ -15,9 +15,10 @@ const VERIFY_VALID_DAYS = 30;          // 동네 인증 유효기간
 const DEFAULT_RADIUS_KM = 3;
 const MAX_RADIUS_KM = 10;
 const MAX_GPS_ACCURACY_M = 1000;       // 이보다 부정확한 위치는 인증 거부
-const ALLOW_MANUAL_LOCATION = process.env.ALLOW_MANUAL_LOCATION === 'true'; // 개발용: 지도 클릭으로 위치 지정 허용
+const DEV_MODE = process.argv.includes('--dev'); // npm run dev: 개발용 옵션 모두 켜기
+const ALLOW_MANUAL_LOCATION = DEV_MODE || process.env.ALLOW_MANUAL_LOCATION === 'true'; // 개발용: 지도 클릭으로 위치 지정 허용
 const KAKAO_REST_KEY = process.env.KAKAO_REST_KEY || '';
-const ALLOW_EMAIL_LOGIN = process.env.ALLOW_EMAIL_LOGIN === 'true';     // 개발용: 이메일 회원가입/로그인 허용 (데모 계정)
+const ALLOW_EMAIL_LOGIN = DEV_MODE || process.env.ALLOW_EMAIL_LOGIN === 'true';     // 개발용: 이메일 회원가입/로그인 허용 (데모 계정)
 const KAKAO_JS_KEY = process.env.KAKAO_JS_KEY || ''; // 카카오맵 JavaScript 키 (브라우저에 노출되는 키, 카카오 콘솔에서 도메인 제한)
 
 const JWT_SECRET = process.env.JWT_SECRET || (() => {

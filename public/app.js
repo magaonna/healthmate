@@ -147,7 +147,11 @@
           ${providers.includes('kakao') ? `<a class="btn block social kakao" href="/auth/kakao">${KAKAO_ICON}카카오로 시작하기</a>` : ''}
           ${providers.includes('google') ? `<a class="btn block social google" href="/auth/google">${GOOGLE_ICON}Google로 시작하기</a>` : ''}
           ${providers.length ? '<div class="small muted" style="text-align:center">처음이면 자동으로 가입돼요. 별도 비밀번호가 필요 없어요.</div>'
-            : '<div class="banner small">로그인 수단이 설정되지 않았어요. 서버에 KAKAO_REST_KEY 또는 GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET 을 설정해 주세요.</div>'}
+            : `<div class="banner small" style="display:block">
+                <b>로그인 수단이 설정되지 않았어요.</b><br>
+                프로젝트 폴더의 <code>.env.example</code> 을 <code>.env</code> 로 복사한 뒤 카카오·구글 키를 입력하고 서버를 다시 시작해 주세요.
+                ${allowEmailLogin ? '' : '<br>키 없이 둘러보려면 <code>npm run dev</code> 로 실행하면 데모 계정으로 로그인할 수 있어요.'}
+              </div>`}
         </div>
         ${allowEmailLogin ? `
           <details class="dev-login" ${signup || !providers.length ? 'open' : ''}>

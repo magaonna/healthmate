@@ -2,6 +2,9 @@ const path = require('path');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
+// 프로젝트 폴더의 .env 파일이 있으면 환경 변수로 읽는다 (server.js, seed.js 모두 db.js 를 먼저 불러온다)
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 fs.mkdirSync(path.join(DATA_DIR, 'uploads'), { recursive: true });
 
