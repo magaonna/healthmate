@@ -2,132 +2,98 @@
 
 우리 동네에서 같이 운동할 헬스메이트를 찾는 지도 기반 웹 서비스입니다.
 
-**흐름:** 이메일 회원가입 → GPS 동네 인증 → 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
+**흐름:** 이메일 회원가입 → GPS 동네 인증 → 헬스 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
 
-## 실행
+**구조:** 화면(`public/`) + **Supabase** (로그인 · 데이터베이스 · 사진 저장 · 실시간). 별도 서버가 필요 없어서 `public/` 폴더만 정적 호스팅에 올리면 됩니다.
 
-```bash
-npm install
-npm run seed      # (선택) 강남역 주변 데모 유저 8명 생성: demo1~8@gymjjak.local / test1234
-npm start         # http://localhost:3000
-npm run dev       # 개발 모드: 지도 클릭으로 동네 인증 가능 + 파일 변경 시 자동 재시작
+```
+public/
+  index.html      화면 뼈대
+  config.js       ⚙️ 설정 (Supabase 주소·공개키, 카카오맵 키, 운영 정보) ← 이 파일만 고치면 됨
+  backend.js      Supabase 연결 (로그인, RPC 호출, 사진 업로드, 실시간)
+  app.js          화면 (vanilla JS SPA)
+  map.js          지도 (카카오맵 / OpenStreetMap) + 좌표 → 동네 이름 변환
+  policies.js     이용약관 · 개인정보처리방침 · 위치기반서비스 이용약관
+  style.css
+supabase/
+  schema.sql      DB 테이블 · 보안 규칙(RLS) · 함수 · 사진 저장소 · 실시간 설정
+server.js         로컬 미리보기용 정적 서버 (의존성 없음)
 ```
 
-**설정 (.env, 선택)** – 카카오맵 등 키를 쓰려면 `.env.example` 을 `.env` 로 복사해 값을 채우고 서버를 다시 시작하세요. 키 없이도 모든 기능이 동작합니다. `.env` 는 git 에 올라가지 않습니다.
+## 1. Supabase 준비 (처음 한 번)
 
-```bash
-copy .env.example .env    # Windows
-cp .env.example .env      # Mac / Linux
+1. **DB 만들기** – Supabase 대시보드 → **SQL Editor** → New query → `supabase/schema.sql` 내용을 **전부** 붙여넣고 **Run**
+   (여러 번 실행해도 안전합니다. 나중에 schema.sql 이 바뀌면 다시 실행하세요.)
+2. **주소 등록** – **Authentication → URL Configuration**
+   - Site URL: 서비스 주소 (예: `https://gymjjak.vercel.app`, 로컬 테스트는 `http://localhost:3000`)
+   - Redirect URLs: `http://localhost:3000` 과 배포 주소를 모두 추가 (가입 인증 메일의 링크가 여기로 돌아옵니다)
+3. **이메일 인증** – Supabase 는 기본으로 가입 시 **인증 메일**을 보냅니다 (아무 메일로 가짜 계정 만드는 것 방지).
+   - ⚠️ Supabase 기본 메일 발송은 **시간당 발송 수가 매우 적고 테스트용**입니다. 실제 출시 전에 **Authentication → Emails → SMTP Settings** 에서 메일 발송 서비스(Resend, AWS SES, 네이버 웍스 등)를 연결하세요.
+   - 혼자 테스트할 때 메일 없이 바로 가입되게 하려면: **Authentication → Sign In / Providers → Email → Confirm email** 끄기
+4. **관리자 지정** – 가입한 뒤 SQL Editor 에서 실행:
+   ```sql
+   insert into public.admins (user_id) select id from auth.users where email = '관리자@이메일.com';
+   ```
+   → 그 계정으로 로그인하면 [내 정보 → 🛡️ 신고 관리] 메뉴가 생깁니다.
+
+## 2. 설정 (`public/config.js`)
+
+| 항목 | 설명 |
+| --- | --- |
+| `supabaseUrl` / `supabaseKey` | Supabase **Project URL** 과 **Publishable key** (이미 입력됨). ⚠️ secret / service_role 키는 절대 넣지 마세요 |
+| `kakaoJsKey` | (선택) 카카오맵 JavaScript 키. 넣으면 지도와 동네 이름이 카카오 기준. 비우면 OpenStreetMap |
+| `authProviders` | (선택) `['kakao', 'google']` – Supabase **Authentication → Providers** 에서 켠 소셜 로그인 버튼 표시 |
+| `service` | 운영자(상호) · 문의 이메일 · 개인정보 보호책임자 – 약관/개인정보처리방침에 표시. **출시 전 꼭 채우기** |
+
+DB 쪽 설정은 SQL 로 바꿉니다:
+
+```sql
+update public.app_settings set allow_manual_location = true;  -- 개발용: GPS 없이 지도 클릭으로 동네 인증 (출시 땐 false)
+update public.app_settings set terms_version = '2027-01-01';  -- 약관을 바꿨을 때: 기존 회원에게 다음 접속 시 재동의 받기
+update public.app_settings set auto_suspend_reporters = 3;     -- 30일 내 서로 다른 N명 신고 시 자동 정지
 ```
 
-Node.js 22.13 이상이 필요합니다(내장 `node:sqlite` 사용, 별도 DB 설치 불필요).
+## 3. 실행 · 배포
 
-> 브라우저 위치 정보(Geolocation)는 **HTTPS 또는 localhost** 에서만 동작합니다. 휴대폰으로 테스트하려면 HTTPS로 배포하거나 ngrok 등을 이용하세요.
+```bash
+npm start        # http://localhost:3000 (설치할 패키지 없음)
+```
 
-## 환경 변수
+> 브라우저 위치 정보(GPS)는 **HTTPS 또는 localhost** 에서만 동작합니다.
 
-환경 변수 또는 `.env` 파일로 지정합니다.
+**배포** – `public/` 폴더를 정적 호스팅에 올리면 끝입니다.
+- **Vercel**: GitHub 저장소 연결 → Framework: Other → Output Directory: `public`
+- **Netlify**: Publish directory: `public` (또는 public 폴더를 드래그 앤 드롭)
 
-| 변수 | 설명 |
-| --- | --- |
-| `PORT` | 서버 포트 (기본 3000) |
-| `SERVICE_OPERATOR` | 운영자(상호) 이름 – 약관·개인정보처리방침에 표시 |
-| `CONTACT_EMAIL` | 고객 문의 이메일 – 약관·정지 안내·내 정보에 표시 |
-| `PRIVACY_OFFICER` | 개인정보 보호책임자 (이름 / 연락처) |
-| `ADMIN_EMAILS` | 관리자 이메일 (쉼표로 여러 명). 이 계정은 [내 정보 → 신고 관리] 사용 가능 |
-| `BASE_URL` | 서비스 주소 (기본 `http://localhost:3000`). 소셜 로그인을 쓸 때 Redirect URI 생성에 사용 |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | (선택) 구글 로그인 버튼 추가 |
-| `KAKAO_CLIENT_SECRET` | (선택) 카카오 로그인 Client Secret (콘솔에서 사용 설정한 경우만) |
-| `JWT_SECRET` | 로그인 토큰 서명 키. 없으면 `data/.jwt_secret` 에 자동 생성 |
-| `KAKAO_JS_KEY` | **카카오맵 JavaScript 키.** 설정하면 지도가 카카오맵으로 표시됨. 없으면 OpenStreetMap으로 대체 |
-| `KAKAO_REST_KEY` | (선택) 카카오 REST API 키. 동네 인증 시 행정동 이름 조회(없으면 OpenStreetMap Nominatim) + 카카오 로그인 버튼 추가 |
-| `ALLOW_MANUAL_LOCATION` | `true` 면 GPS 없이 지도 클릭으로 인증 허용 (개발/테스트용, 운영에선 끄세요) |
-| `DATA_DIR` | DB와 업로드 사진 저장 위치 (기본 `./data`) |
-| `NODE_ENV=production` | 쿠키에 `Secure` 플래그 적용 (HTTPS 필수) |
+배포 후 할 일: Supabase **URL Configuration** 에 배포 주소 추가, 카카오맵을 쓰면 카카오 개발자 콘솔 **플랫폼 → Web** 에 배포 도메인 추가.
 
-## 소셜 로그인 설정 (선택)
+## 카카오맵 (선택)
 
-기본 회원가입/로그인은 **이메일 + 비밀번호**입니다. 아래 키를 설정하면 로그인 화면에 **카카오 / Google 로 시작하기** 버튼이 추가됩니다 (처음 로그인하면 자동 가입 → 닉네임 확인 → 동네 인증).
+1. [카카오 개발자 콘솔](https://developers.kakao.com/console/app) → 애플리케이션 추가
+2. **플랫폼 → Web** 에 사이트 도메인 등록 (`http://localhost:3000`, 배포 주소)
+3. **카카오맵** 사용 설정 켜기
+4. **JavaScript 키**를 `config.js` 의 `kakaoJsKey` 에 입력 (브라우저용 키라 공개돼도 등록한 도메인에서만 동작)
 
-**카카오 로그인** (카카오맵과 같은 앱 사용)
-1. [카카오 개발자 콘솔](https://developers.kakao.com/console/app) → 내 애플리케이션 → **카카오 로그인** 활성화
-2. **Redirect URI** 등록: `{BASE_URL}/auth/kakao/callback` (예: `http://localhost:3000/auth/kakao/callback`)
-3. **동의항목**에서 `닉네임` 을 선택 동의로 설정 (닉네임 기본값으로 사용, 없어도 동작)
-4. (선택) 보안 → Client Secret 을 켰다면 `KAKAO_CLIENT_SECRET` 지정
+## 보안 구조
 
-**구글 로그인**
-1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → 프로젝트 생성 → **OAuth 동의 화면** 구성 (외부, 앱 이름·이메일 입력)
-2. **사용자 인증 정보 → OAuth 클라이언트 ID 만들기** → 유형: 웹 애플리케이션
-3. **승인된 리디렉션 URI**: `{BASE_URL}/auth/google/callback`
-4. 발급된 클라이언트 ID/보안 비밀번호를 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 으로 지정
-5. 테스트 중에는 동의 화면의 '테스트 사용자'만 로그인 가능 → 출시 전 **앱 게시** 필요
+- 브라우저는 **공개키**로 Supabase 에 접속하고, 테이블에 직접 쓰는 것은 **모두 막혀 있습니다** (RLS).
+- 프로필 저장 · 쪽지 · 채팅 · 차단 · 신고 같은 모든 동작은 `schema.sql` 의 **함수(RPC)** 로만 가능하며, 함수 안에서 로그인 여부 · 약관 동의 · 정지 여부 · 차단 관계 · 입력값을 검사합니다.
+- 다른 회원의 **정확한 좌표는 조회할 수 없고**, 약 300m 범위로 흐린 위치와 거리만 받습니다.
+- 사진은 `avatars` 저장소의 **본인 폴더**에만 올릴 수 있습니다.
 
-발급받은 값은 `.env` 에 입력합니다. 서버를 시작하면 콘솔에 등록해야 할 Redirect URI 가 출력됩니다. 키가 하나도 없으면 로그인 화면에 설정 안내가 표시됩니다.
+## 기능
 
-## 카카오맵 설정
-
-1. [카카오 개발자 콘솔](https://developers.kakao.com/console/app)에서 애플리케이션 추가
-2. **앱 설정 → 플랫폼 → Web** 에 서비스 도메인 등록 (예: `http://localhost:3000`, `https://내도메인.com`)
-3. **카카오맵** 사용 설정을 활성화 (앱 설정 → 제품 설정 → 카카오맵)
-4. **앱 키** 에서 키를 복사해 환경 변수로 지정
-
-JavaScript 키는 `.env` 의 `KAKAO_JS_KEY`, REST API 키는 `KAKAO_REST_KEY` 에 입력합니다.
-
-- `KAKAO_JS_KEY` – 지도 표시용 (브라우저에 노출되는 키라 도메인 등록으로 보호됨)
-- `KAKAO_REST_KEY` – 동네 인증 시 좌표 → 행정동 이름 변환용 (서버에서만 사용)
-
-키가 없거나 카카오맵 로딩에 실패하면 자동으로 OpenStreetMap 지도로 대체됩니다.
-
-## 신고 · 차단 · 개인정보
-
-| 기능 | 내용 |
-| --- | --- |
-| **약관 동의** | 가입 시 필수 동의: 만 14세 이상 · 이용약관 · 개인정보 수집·이용 · 위치기반서비스 이용약관 (전체 동의 / 각 문서 보기). 약관 버전(`db.js` 의 `TERMS_VERSION`)을 올리면 기존 회원은 다음 접속 때 재동의 |
-| **약관 문서** | `public/policies.js` – 이용약관, 개인정보처리방침, 위치기반서비스 이용약관. 운영자·문의처·지도 업체는 설정값으로 자동 채움 (`[... 미설정]` 으로 빨갛게 보이는 부분은 직접 채우기) |
-| **차단** | 프로필 또는 채팅방 ⋯ 메뉴에서 차단 → 서로 목록·프로필이 안 보이고 쪽지·채팅 불가, 대기 쪽지 자동 거절. [내 정보 → 차단 목록]에서 해제 |
-| **신고** | 사유 선택(부적절한 사진, 욕설, 성희롱, 광고, 사기, 미성년자 의심, 기타) + 내용, 동시에 차단 가능. 채팅방에서 신고하면 최근 대화 30개가 증거로 첨부 (관리자만 열람) |
-| **자동 정지** | 30일 안에 서로 다른 3명에게 신고되면 검토 전까지 자동 이용 정지 |
-| **관리자** | `ADMIN_EMAILS` 계정 → [내 정보 → 신고 관리]: 대기/조치/기각 목록, 신고된 대화 보기, 이용 정지 · 기각 · 정지 해제 |
-| **정지된 계정** | 정지 사유·문의처 안내 화면, 내 정보 내려받기 · 탈퇴만 가능. 정지 상태로 탈퇴하면 같은 이메일로 재가입 불가 (이메일 해시만 보관) |
-| **회원 탈퇴** | 비밀번호 확인 후 프로필·사진·위치·쪽지·채팅 즉시 삭제 |
-| **내 정보 내려받기** | 저장된 내 정보 전체를 JSON 파일로 (개인정보 열람권) |
-| **비밀번호 변경** | 내 정보에서 변경 |
-| **위치정보 기록** | 동네 인증마다 이용 사실(일시·방법·좌표를 전달한 곳, 좌표 제외)을 6개월 보관 후 자동 삭제 (위치정보법) |
-| **보관기간 자동 삭제** | 위치 이용 기록 6개월, 처리 완료 신고 1년 – 하루 한 번 정리 |
-| **보안** | 로그인 실패 IP당 15분 10회 제한, 보안 헤더, 비밀번호 bcrypt, httpOnly 쿠키 |
-| **안전 수칙** | 쪽지 작성 화면과 채팅방 상단에 안내 |
+- **회원가입/로그인** – Supabase Auth (이메일 인증 · 비밀번호 bcrypt · 로그인 시도 제한). (선택) 카카오·구글 소셜 로그인
+- **동네 인증** – GPS(정확도 1km 이내) → 지도 API 로 동네 이름 변환, 30일 유효
+- **헬스 프로필** – 사진, 닉네임, 성별, 나이, 헬스 구력, 3대 1RM(합계 자동), 헬스장, 운동 요일·시간대, 자기소개, 공개 여부
+- **원하는 헬스메이트 조건** – 성별, 나이 범위, 3대 합계 최소, 기타 → `✅ 내 조건에 맞음` / `🤝 서로 조건 맞음` / `🏢 같은 헬스장` / `📅 겹치는 요일` 표시
+- **동네 탐색** – 지도 + 목록, 반경 · 성별 · 3대 합계 · 요일 · 조건 필터
+- **쪽지** – 수락 시 1:1 채팅 개설, 중복 방지, 하루 20통 제한
+- **1:1 채팅** – Supabase Realtime 실시간 메시지 · 읽음 표시 · 입력 중 표시 (실시간 연결이 안 되면 4초마다 자동 확인)
+- **신고 · 차단** – 신고 사유 + 채팅 증거 첨부, 차단 시 서로 숨김, 30일 내 3명 신고 시 자동 정지, 관리자 신고 관리 화면
+- **약관 · 개인정보** – 가입 시 필수 동의(만 14세 이상 포함), 약관 변경 시 재동의, 회원 탈퇴(즉시 삭제), 내 정보 내려받기, 비밀번호 변경, 위치 이용 기록 6개월 보관
 
 > ⚠️ **출시 전 꼭 확인하세요**
-> - 약관·개인정보처리방침은 **템플릿**입니다. 실제 운영 형태에 맞게 법률 전문가 검토를 받으세요.
-> - 위치정보를 이용하는 서비스는 **위치기반서비스사업 신고**(방송통신위원회) 대상일 수 있습니다. 신고 후 위치기반서비스 이용약관의 신고번호를 채우세요.
-> - 개인정보처리방침의 **서버 호스팅 업체**(위탁) 항목을 실제 업체로 채우세요.
-
-## 주요 기능
-
-- **회원가입/로그인** – 이메일 + 비밀번호(bcrypt), httpOnly JWT 쿠키. (선택) 키 설정 시 카카오·구글 소셜 로그인 추가
-- **동네 인증** – 브라우저 GPS(정확도 1km 이내만 인정) → 역지오코딩으로 동네 이름 확정, 30일간 유효
-- **위치 프라이버시** – 정확한 좌표는 서버에만 저장, 다른 유저에게는 약 300m 격자 + 고정 오프셋을 적용한 근사 좌표만 노출
-- **헬스 프로필** – 사진, 닉네임, 성별, 나이, 헬스 구력, 3대 1RM(벤치프레스·스쿼트·데드리프트, 합계 자동 계산), 다니는 헬스장, 자주 가는 요일·시간대, 자기소개, 공개 여부
-- **원하는 헬스메이트 조건** – 성별, 나이 범위, 3대 합계 최소 kg, 기타 조건(자유 입력)
-- **조건 매칭** – 목록·프로필에 `✅ 내 조건에 맞음` / `🤝 서로 조건 맞음` / `🏢 같은 헬스장` / `📅 겹치는 요일` 표시, 상대 조건에 안 맞으면 쪽지 전 안내
-- **동네 탐색** – 카카오맵 + 목록, 반경(1/3/5/10km)·성별·3대 합계·요일·'내 조건에 맞는 메이트만' 필터, 거리순 정렬
-- **쪽지** – 받은/보낸 쪽지함, 수락/거절, 같은 상대 중복 발송 방지, 하루 20통 제한, 실시간 알림
-- **1:1 채팅** – Socket.IO 실시간 메시지, 읽음 표시(1), 입력 중 표시, 안 읽은 메시지 배지. 수락된 쪽지가 첫 메시지로 들어감
-
-## 구조
-
-```
-server.js        Express API + Socket.IO
-db.js            SQLite 스키마 (users, profiles, locations, notes, rooms, messages, blocks, reports, location_logs)
-seed.js          데모 데이터
-public/          프론트엔드 (vanilla JS SPA)
-public/map.js    지도 어댑터 (카카오맵 / OpenStreetMap 대체)
-public/policies.js  이용약관 · 개인정보처리방침 · 위치기반서비스 이용약관
-data/            DB · 업로드 사진 (git 제외)
-```
-
-## 다음 단계로 고려할 것
-
-- 이메일 인증(가입 시 인증번호), 비밀번호 재설정 메일
-- 로그인 시도 rate limit, 이미지 리사이즈, 푸시 알림
-- 트래픽이 늘면 PostgreSQL(PostGIS) + Redis 어댑터(Socket.IO 멀티 인스턴스)로 이전
+> - 약관·개인정보처리방침은 **템플릿**입니다. 실제 운영 형태에 맞게 법률 전문가 검토를 받으세요. (`[... 미설정]` 으로 빨갛게 보이는 곳 채우기)
+> - 위치정보를 이용하는 서비스는 **위치기반서비스사업 신고**(방송통신위원회) 대상일 수 있습니다.
+> - Supabase **이메일 발송(SMTP)** 을 실제 서비스용으로 연결하세요.

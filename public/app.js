@@ -3,27 +3,19 @@
   const $app = document.getElementById('app');
   const $modal = document.getElementById('modal');
   const $modalBody = document.getElementById('modalBody');
-  const state = { me: null, config: null, socket: null, map: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null };
+  const state = { me: null, config: null, live: false, poller: null, map: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null };
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; };
 
-  async function api(path, opts = {}) {
-    const init = { method: opts.method || 'GET', headers: {} };
-    if (opts.body instanceof FormData) init.body = opts.body;
-    else if (opts.body) { init.body = JSON.stringify(opts.body); init.headers['Content-Type'] = 'application/json'; }
-    const res = await fetch(path, init);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const err = new Error(data.error || '요청에 실패했습니다.');
-      Object.assign(err, data, { status: res.status });
-      if (res.status === 401 && !path.startsWith('/api/auth') && path !== '/api/me') { state.me = null; location.hash = '#/login'; }
-      if (data.code === 'SUSPENDED') { state.me = null; location.hash = '#/suspended'; }
-      if (data.code === 'NEED_CONSENT') location.hash = '#/welcome';
-      throw err;
-    }
-    return data;
+  // 서버(Supabase 함수)의 코드형 오류는 화면 이동으로 처리
+  function handleCodeError(err) {
+    if (err.code === 'NOT_AUTHENTICATED') { state.me = null; location.hash = '#/login'; }
+    if (err.code === 'SUSPENDED') { state.me = null; location.hash = '#/suspended'; }
+    if (err.code === 'NEED_CONSENT') location.hash = '#/welcome';
+    if (err.code === 'NEED_VERIFY') location.hash = '#/verify';
+    return !!err.code;
   }
 
   let toastTimer;
@@ -36,7 +28,7 @@
   const genderLabel = { male: '남성', female: '여성' };
   const avatar = (photo, cls = '') => `<span class="avatar ${cls}">${photo ? `<img src="${esc(photo)}" alt="">` : '💪'}</span>`;
   const distLabel = (km) => (km == null ? '' : km < 0.5 ? '500m 이내' : `${km}km`);
-  const parseDate = (s) => new Date(s.replace(' ', 'T') + 'Z');
+  const parseDate = (s) => new Date(s);
   function timeLabel(s) {
     if (!s) return '';
     const d = parseDate(s); const now = new Date();
@@ -58,40 +50,60 @@
     if (state.map) { state.map.destroy(); state.map = null; }
   }
 
-  // ------------------------------------------------------------ socket & badges
-  function connectSocket() {
-    if (state.socket) return;
-    state.socket = io();
-    state.socket.on('note:new', ({ from }) => { toast(`✉️ ${from}님이 쪽지를 보냈어요`); refreshBadges(); if (location.hash.startsWith('#/notes')) route(); });
-    state.socket.on('note:accepted', ({ by }) => { toast(`🎉 ${by}님이 쪽지를 수락했어요! 채팅을 시작해 보세요`); refreshBadges(); });
-    state.socket.on('chat:message', (msg) => {
-      if (state.chatRoomId === msg.roomId) { appendMessage(msg); if (msg.senderId !== state.me.id) state.socket.emit('chat:read', { roomId: msg.roomId }); }
-      else if (msg.senderId !== state.me.id) { refreshBadges(); if (location.hash === '#/chats') route(); }
+  // ------------------------------------------------------------ 실시간 알림 (Supabase Realtime, 연결 안 되면 폴링)
+  let typingTimer;
+  function connectLive() {
+    if (state.liveFor === state.me.id) return;
+    state.liveFor = state.me.id;
+    Backend.subscribe(state.me.id, {
+      status: (ok) => { state.live = ok; },
+      noteNew: () => { toast('✉️ 새 쪽지가 도착했어요'); refreshBadges(); if (location.hash.startsWith('#/notes')) route(); },
+      noteAccepted: () => { toast('🎉 쪽지가 수락되었어요! 채팅을 시작해 보세요'); refreshBadges(); },
+      message: (msg) => {
+        if (state.chatRoomId === msg.roomId) { appendMessage(msg); if (msg.senderId !== state.me.id) Backend.markRead(msg.roomId); }
+        else if (msg.senderId !== state.me.id) { refreshBadges(); if (location.hash === '#/chats') route(); }
+      },
+      read: (roomId) => { if (state.chatRoomId === roomId) markAllRead(); },
     });
-    state.socket.on('chat:read', ({ roomId }) => {
-      if (state.chatRoomId === roomId) document.querySelectorAll('.msg.mine .unread').forEach((el) => el.remove());
-    });
-    state.socket.on('rooms:changed', () => { if (/^#\/chats?/.test(location.hash)) route(); refreshBadges(); });
-    let typingTimer;
-    state.socket.on('chat:typing', ({ roomId }) => {
-      const el = document.getElementById('typing');
-      if (state.chatRoomId !== roomId || !el) return;
-      el.textContent = '상대방이 입력 중...';
-      clearTimeout(typingTimer); typingTimer = setTimeout(() => { el.textContent = ''; }, 2000);
-    });
+    // 실시간 연결이 안 되는 환경에서는 4초마다 새 소식을 확인
+    clearInterval(state.poller);
+    state.poller = setInterval(() => { if (!state.live && state.me) poll(); }, 4000);
+  }
+  function disconnectLive() {
+    Backend.unsubscribe();
+    clearInterval(state.poller);
+    state.liveFor = null; state.live = false;
+  }
+  async function poll() {
+    refreshBadges();
+    if (state.chatRoomId) {
+      try {
+        const data = await Backend.room(state.chatRoomId);
+        data.messages.forEach((m) => { if (!renderedIds.has(m.id)) appendMessage(m); });
+        if (data.messages.some((m) => m.senderId === state.me.id) && data.messages.filter((m) => m.senderId === state.me.id).every((m) => m.readAt)) markAllRead();
+      } catch {}
+    } else if (location.hash === '#/chats') route();
+  }
+  const markAllRead = () => document.querySelectorAll('.msg.mine .unread').forEach((el) => el.remove());
+  function showTyping() {
+    const el = document.getElementById('typing');
+    if (!el) return;
+    el.textContent = '상대방이 입력 중...';
+    clearTimeout(typingTimer); typingTimer = setTimeout(() => { el.textContent = ''; }, 2000);
   }
 
   async function refreshBadges() {
     if (!state.me) return;
     try {
-      const b = await api('/api/badges');
+      const b = await Backend.badges();
       document.getElementById('badgeNotes').textContent = b.notes || '';
       document.getElementById('badgeChats').textContent = b.chats || '';
     } catch {}
   }
 
   async function loadMe() {
-    try { state.me = await api('/api/me'); } catch { state.me = null; }
+    state.me = null;
+    try { if (await Backend.session()) state.me = await Backend.me(); } catch {}
     return state.me;
   }
 
@@ -127,13 +139,13 @@
       if (state.me.suspended) { if (fn !== viewSuspended) { location.hash = '#/suspended'; return; } }
       else if (fn === viewSuspended) { location.hash = '#/'; return; }
       else if (!state.me.termsAgreed) { if (fn !== viewWelcome) { location.hash = '#/welcome'; return; } }
-      if (!state.me.suspended && state.me.termsAgreed) { connectSocket(); refreshBadges(); }
+      if (!state.me.suspended && state.me.termsAgreed) { connectLive(); refreshBadges(); }
       if (!opts.noVerify && !state.me.location?.verified) { location.hash = '#/verify'; return; }
     } else if (state.me || await loadMe()) { location.hash = '#/'; return; }
     const params = hash.match(re)?.slice(1) || [];
     try { await fn(...params); } catch (e) {
       console.error(e);
-      if (!['SUSPENDED', 'NEED_CONSENT', 'NEED_VERIFY'].includes(e.code) && e.status !== 401) toast(e.message); // 화면 이동으로 처리되는 오류는 안내 생략
+      if (!handleCodeError(e)) toast(e.message); // 코드형 오류는 화면 이동으로 처리
     }
   }
   window.addEventListener('hashchange', route);
@@ -141,16 +153,10 @@
   // ------------------------------------------------------------ views: auth
   const KAKAO_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#191919" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.27 4.66 6.67-.2.75-.74 2.72-.85 3.14-.13.52.19.51.4.37.17-.11 2.65-1.8 3.72-2.53.67.1 1.36.15 2.07.15 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg>';
   const GOOGLE_ICON = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
-  const AUTH_ERRORS = {
-    cancelled: '로그인이 취소되었어요.',
-    state: '로그인 요청이 만료되었어요. 다시 시도해 주세요.',
-    provider: '로그인 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
-    disabled: '지원하지 않는 로그인 방식이에요.',
-  };
 
   function viewAuth(mode) {
     setChrome({ bars: false });
-    const providers = state.config.loginProviders; // 카카오·구글 키를 설정한 경우에만 버튼 표시
+    const providers = state.config.loginProviders; // config.js 의 authProviders (Supabase 에서 켠 소셜 로그인)
     const signup = mode === 'signup';
     $app.innerHTML = '';
     $app.append(h(`
@@ -171,13 +177,14 @@
           </div>
           ${providers.length ? `
             <div class="divider small muted">또는</div>
-            ${providers.includes('kakao') ? `<a class="btn block social kakao" href="/auth/kakao">${KAKAO_ICON}카카오로 시작하기</a>` : ''}
-            ${providers.includes('google') ? `<a class="btn block social google" href="/auth/google">${GOOGLE_ICON}Google로 시작하기</a>` : ''}` : ''}
+            ${providers.includes('kakao') ? `<button type="button" class="btn block social kakao" data-oauth="kakao">${KAKAO_ICON}카카오로 시작하기</button>` : ''}
+            ${providers.includes('google') ? `<button type="button" class="btn block social google" data-oauth="google">${GOOGLE_ICON}Google로 시작하기</button>` : ''}` : ''}
         </form>
         ${policyFooter()}
       </div></div>`));
     const form = document.getElementById('authForm');
     if (signup) bindAgreements(form);
+    form.querySelectorAll('[data-oauth]').forEach((b) => b.addEventListener('click', () => Backend.oauth(b.dataset.oauth).catch((e) => toast(e.message))));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (signup && !agreementsOk(form)) return toast('필수 약관에 모두 동의해 주세요.');
@@ -185,10 +192,39 @@
       const fd = Object.fromEntries(new FormData(e.target));
       const body = { email: fd.email, password: fd.password, nickname: fd.nickname, ...(signup ? readAgreements(form) : {}) };
       try {
-        await api(`/api/auth/${mode}`, { method: 'POST', body });
+        if (signup) {
+          const { needsConfirm } = await Backend.signup(body);
+          if (needsConfirm) { showConfirmEmail(body.email); return; }
+        } else {
+          await Backend.login(body.email, body.password);
+        }
         await loadMe();
         location.hash = state.me.location?.verified ? '#/' : '#/verify';
-      } catch (err) { toast(err.message); btn.disabled = false; }
+      } catch (err) {
+        toast(err.message); btn.disabled = false;
+        if (/이메일 인증을 완료/.test(err.message)) showConfirmEmail(body.email);
+      }
+    });
+  }
+
+  // 가입 후 이메일 인증 안내 (Supabase 'Confirm email' 설정이 켜진 경우)
+  function showConfirmEmail(email) {
+    $app.innerHTML = '';
+    $app.append(h(`
+      <div class="auth-wrap"><div class="auth-card">
+        <div class="auth-hero"><div class="logo">📧</div><h1>메일함을 확인해 주세요</h1>
+          <div class="muted"><b>${esc(email)}</b> 로 인증 메일을 보냈어요.<br>메일의 링크를 누르면 가입이 완료돼요.</div></div>
+        <div class="card stack">
+          <button class="btn block" id="resendBtn">인증 메일 다시 보내기</button>
+          <button class="btn primary block" id="goLogin">로그인하러 가기</button>
+          <div class="small muted">메일이 안 보이면 스팸함도 확인해 주세요.</div>
+        </div>
+      </div></div>`));
+    // 이미 #/login 화면에서 이 안내로 바뀐 경우에도 로그인 화면을 다시 그린다
+    document.getElementById('goLogin').addEventListener('click', () => { if (location.hash === '#/login') viewAuth('login'); else location.hash = '#/login'; });
+    document.getElementById('resendBtn').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try { await Backend.resendConfirm(email); toast('인증 메일을 다시 보냈어요'); } catch (err) { toast(err.message); e.target.disabled = false; }
     });
   }
 
@@ -269,7 +305,7 @@
       if (!agreementsOk(form)) return toast('필수 약관에 모두 동의해 주세요.');
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        await api('/api/me/consent', { method: 'PUT', body: { ...(isNew ? { nickname: form.nickname.value } : {}), ...readAgreements(form) } });
+        await Backend.agreeTerms(readAgreements(form), isNew ? form.nickname.value : null);
         await loadMe();
         location.hash = state.me.location?.verified ? '#/' : '#/verify';
       } catch (err) { toast(err.message); btn.disabled = false; }
@@ -289,21 +325,24 @@
           <dl class="kv"><dt>사유</dt><dd>${esc(sp.reason || '운영정책 위반')}</dd><dt>정지 일시</dt><dd>${esc(parseDate(sp.at).toLocaleString('ko-KR'))}</dd></dl>
           <div class="small muted">정지 중에는 다른 회원에게 프로필이 보이지 않고 쪽지·채팅을 할 수 없어요.
             ${email ? `이의가 있으면 <a class="link" href="mailto:${esc(email)}">${esc(email)}</a>로 문의해 주세요.` : ''}</div>
-          <a class="btn block" href="/api/me/export" download>📥 내 정보 내려받기</a>
+          <button class="btn block" data-export>📥 내 정보 내려받기</button>
           <button class="btn block" id="suspLogout">로그아웃</button>
           <button class="btn block danger" id="suspDelete">회원 탈퇴</button>
         </div>
         ${policyFooter()}
       </div></div>`));
     document.getElementById('suspLogout').addEventListener('click', logout);
+    bindExport($app);
     document.getElementById('suspDelete').addEventListener('click', openDeleteAccount);
   }
 
   async function logout() {
-    await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    state.me = null; state.socket?.disconnect(); state.socket = null;
+    disconnectLive();
+    await Backend.logout();
+    state.me = null;
     location.hash = '#/login';
   }
+  const bindExport = (root) => root.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => Backend.exportData().catch((e) => toast(e.message))));
 
   // ------------------------------------------------------------ views: 동네 인증
   async function viewVerify() {
@@ -335,7 +374,8 @@
       const r = document.getElementById('verifyResult');
       r.textContent = '동네를 확인하는 중...';
       try {
-        const res = await api('/api/location/verify', { method: 'POST', body });
+        const geo = await MateMap.reverseGeocode(body.lat, body.lng);
+        const res = await Backend.verifyLocation({ ...body, ...geo });
         await loadMe();
         r.innerHTML = `✅ <b>${esc(res.region)}</b> 인증 완료!`;
         toast(`${res.region} 인증이 완료되었어요`);
@@ -416,9 +456,10 @@
 
     async function load() {
       try {
-        state.nearby = await api(`/api/profiles/nearby?radius=${f.radius}`);
+        state.nearby = await Backend.nearby(f.radius);
+        state.nearby.users.forEach((u) => decorate(u));
       } catch (e) {
-        if (e.code === 'NEED_VERIFY') { location.hash = '#/verify'; return; }
+        if (handleCodeError(e)) return;
         throw e;
       }
       if (!document.getElementById('mateList')) return;
@@ -461,13 +502,31 @@
             ${matchTags(u)}
           </div>
         </div>`).join('');
-      list.querySelectorAll('.user-card').forEach((el) => el.addEventListener('click', () => showProfile(Number(el.dataset.id))));
+      list.querySelectorAll('.user-card').forEach((el) => el.addEventListener('click', () => showProfile(el.dataset.id).catch((e) => toast(e.message))));
     }
 
     await load();
   }
 
   // ------------------------------------------------------------ 프로필 표시 helpers
+  // 조건 매칭 표시 (내 프로필 기준으로 계산)
+  function meetsPrefs(c, owner) {
+    const p = owner.prefs || {};
+    if (p.gender && c.gender !== p.gender) return false;
+    if (p.ageMin != null && !(c.age >= p.ageMin)) return false;
+    if (p.ageMax != null && !(c.age <= p.ageMax)) return false;
+    if (p.minTotal != null && !(c.total >= p.minTotal)) return false;
+    return true;
+  }
+  function decorate(u) {
+    const me = state.me;
+    u.meetsMyPrefs = meetsPrefs(u, me);
+    u.iMeetTheirPrefs = meetsPrefs(me, u);
+    const norm = (g) => (g || '').replace(/\s/g, '');
+    u.sameGym = !!(u.gymName && me.gymName && norm(u.gymName) === norm(me.gymName));
+    u.commonDays = (u.workoutDays || []).filter((d) => (me.workoutDays || []).includes(d));
+    return u;
+  }
   const personLine = (u) => [genderLabel[u.gender], u.age ? `${u.age}세` : '', u.career ? `구력 ${u.career}` : ''].filter(Boolean).join(' · ');
   function liftLine(u) {
     if (u.bench == null && u.squat == null && u.deadlift == null) return '<span class="muted small">3대 기록 미입력</span>';
@@ -491,7 +550,7 @@
   }
 
   async function showProfile(id) {
-    const u = await api(`/api/profiles/${id}`);
+    const u = decorate(await Backend.profile(id));
     let action;
     if (u.roomId) action = `<a class="btn primary block" href="#/chat/${u.roomId}">💬 채팅방으로 이동</a>`;
     else if (u.pendingNote) action = `<button class="btn block" disabled>✉️ 쪽지를 보냈어요 · 답장을 기다리는 중</button>`;
@@ -548,7 +607,7 @@
       e.preventDefault();
       const btn = form.querySelector('button'); btn.disabled = true;
       try {
-        await api('/api/notes', { method: 'POST', body: { toId: u.id, content: form.content.value } });
+        await Backend.sendNote(u.id, form.content.value);
         toast('쪽지를 보냈어요! 상대방이 수락하면 알려드릴게요');
         closeModal();
       } catch (err) {
@@ -561,7 +620,7 @@
   // ------------------------------------------------------------ views: 쪽지함
   async function viewNotes(box = sessionStorageGet('notesBox') || 'inbox') {
     setChrome({ tab: 'notes' });
-    const notes = await api(`/api/notes?box=${box}`);
+    const notes = await Backend.notes(box);
     refreshBadges();
     const statusLabel = { pending: '대기 중', accepted: '수락됨', declined: '거절됨' };
     $app.innerHTML = '';
@@ -587,16 +646,16 @@
           </div>`).join('') : `<div class="empty"><span class="big">✉️</span>${box === 'inbox' ? '받은 쪽지가 없어요.<br>동네 메이트에게 먼저 쪽지를 보내보세요!' : '보낸 쪽지가 없어요.'}</div>`}
       </div>`));
     $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { sessionStorageSet('notesBox', b.dataset.box); viewNotes(b.dataset.box); }));
-    $app.querySelectorAll('.profile-link').forEach((el) => el.addEventListener('click', () => showProfile(Number(el.dataset.uid)).catch((e) => toast(e.message))));
+    $app.querySelectorAll('.profile-link').forEach((el) => el.addEventListener('click', () => showProfile(el.dataset.uid).catch((e) => toast(e.message))));
     $app.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
-      const id = b.closest('[data-id]').dataset.id;
+      const id = Number(b.closest('[data-id]').dataset.id);
       try {
         if (b.dataset.act === 'accept') {
-          const r = await api(`/api/notes/${id}/accept`, { method: 'POST' });
-          location.hash = `#/chat/${r.roomId}`;
+          const roomId = await Backend.acceptNote(id);
+          location.hash = `#/chat/${roomId}`;
         } else {
           if (!confirm('이 쪽지를 거절할까요?')) return;
-          await api(`/api/notes/${id}/decline`, { method: 'POST' });
+          await Backend.declineNote(id);
           viewNotes(box);
         }
       } catch (e) { toast(e.message); }
@@ -626,7 +685,7 @@
       e.preventDefault();
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const r = await api('/api/reports', { method: 'POST', body: { targetId: user.id, reason: form.reason.value, detail: form.detail.value, roomId, block: form.block.checked } });
+        const r = await Backend.report({ targetId: user.id, reason: form.reason.value, detail: form.detail.value, roomId, block: form.block.checked });
         closeModal();
         toast(r.blocked ? '신고가 접수되고 차단되었어요. 운영팀이 확인할게요.' : '신고가 접수되었어요. 운영팀이 확인할게요.');
         if (r.blocked) afterBlock(roomId ? () => { location.hash = '#/chats'; } : null);
@@ -637,7 +696,7 @@
   async function blockUser(user, after) {
     if (!confirm(`${user.nickname}님을 차단할까요?\n서로 프로필이 보이지 않고 쪽지·채팅을 주고받을 수 없어요. 차단은 [내 정보 → 차단 목록]에서 해제할 수 있어요.`)) return;
     try {
-      await api('/api/blocks', { method: 'POST', body: { userId: user.id } });
+      await Backend.block(user.id);
       closeModal();
       toast(`${user.nickname}님을 차단했어요`);
       afterBlock(after);
@@ -650,7 +709,7 @@
 
   async function viewBlocks() {
     setChrome({ tab: 'me' });
-    const list = await api('/api/blocks');
+    const list = await Backend.blocks();
     $app.innerHTML = '';
     $app.append(h(`
       <a class="link small" href="#/me">← 내 정보</a>
@@ -663,7 +722,7 @@
         </div>`).join('') : '<div class="empty"><span class="big">🙂</span>차단한 사용자가 없어요.</div>'}`));
     $app.querySelectorAll('[data-unblock]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 차단을 해제할까요?`)) return;
-      await api(`/api/blocks/${b.dataset.unblock}`, { method: 'DELETE' });
+      await Backend.unblock(b.dataset.unblock);
       toast('차단을 해제했어요'); viewBlocks();
     }));
   }
@@ -673,7 +732,7 @@
     setChrome({ tab: 'me' });
     if (!state.me.isAdmin) { location.hash = '#/me'; return; }
     const tabs = [['pending', '대기 중'], ['actioned', '조치 완료'], ['dismissed', '기각'], ['suspended', '정지 회원']];
-    const data = tab === 'suspended' ? await api('/api/admin/suspended') : await api(`/api/admin/reports?status=${tab}`);
+    const data = tab === 'suspended' ? await Backend.adminSuspended() : await Backend.adminReports(tab);
     $app.innerHTML = '';
     $app.append(h(`
       <a class="link small" href="#/me">← 내 정보</a>
@@ -688,12 +747,12 @@
         reason = prompt('정지 사유 (회원에게 표시돼요)', `운영정책 위반 (${b.dataset.reason})`);
         if (reason === null) return;
       } else if (!confirm('이 신고를 기각할까요?')) return;
-      await api(`/api/admin/reports/${b.dataset.id}/resolve`, { method: 'POST', body: { action, reason } });
+      await Backend.adminResolve(Number(b.dataset.id), action, reason);
       toast(action === 'suspend' ? '이용 정지했어요' : '기각했어요'); viewAdmin(tab);
     }));
     $app.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 정지를 해제할까요?`)) return;
-      await api(`/api/admin/users/${b.dataset.unsuspend}/unsuspend`, { method: 'POST' });
+      await Backend.adminUnsuspend(b.dataset.unsuspend);
       toast('정지를 해제했어요'); viewAdmin(tab);
     }));
   }
@@ -734,7 +793,7 @@
   // ------------------------------------------------------------ views: 채팅 목록
   async function viewChats() {
     setChrome({ tab: 'chats' });
-    const rooms = await api('/api/rooms');
+    const rooms = await Backend.rooms();
     $app.innerHTML = '';
     $app.append(h(`
       <h1>채팅</h1>
@@ -752,10 +811,11 @@
 
   // ------------------------------------------------------------ views: 1:1 채팅방
   let lastDay = null;
+  const renderedIds = new Set();
   async function viewChat(roomId) {
     roomId = Number(roomId);
     setChrome({ tab: 'chat', full: true });
-    const data = await api(`/api/rooms/${roomId}/messages`);
+    const data = await Backend.room(roomId);
     refreshBadges();
     const other = data.room.other;
     $app.innerHTML = '';
@@ -782,6 +842,7 @@
       </div>`));
     state.chatRoomId = roomId;
     lastDay = null;
+    renderedIds.clear();
     data.messages.forEach(appendMessage);
     if (!data.messages.length) document.getElementById('msgs').innerHTML = '<div class="day-sep">채팅방이 열렸어요. 인사를 건네 보세요 👋</div>';
     scrollBottom();
@@ -805,25 +866,28 @@
     });
     const form = document.getElementById('chatForm');
     if (!form) return;
+    const typing = Backend.typingChannel(roomId, (p) => { if (p.from !== state.me.id && state.chatRoomId === roomId) showTyping(); });
     const ta = form.content;
     let lastTyping = 0;
-    const send = () => {
+    const send = async () => {
       const content = ta.value.trim();
       if (!content) return;
-      state.socket.emit('chat:send', { roomId, content }, (res) => { if (res?.error) toast(res.error); });
       ta.value = ''; ta.style.height = '';
+      try { appendMessage(await Backend.sendMessage(roomId, content)); } catch (e) { toast(e.message); ta.value = content; }
     };
     form.addEventListener('submit', (e) => { e.preventDefault(); send(); ta.focus(); });
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
     ta.addEventListener('input', () => {
       ta.style.height = ''; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-      if (Date.now() - lastTyping > 1200) { lastTyping = Date.now(); state.socket.emit('chat:typing', { roomId }); }
+      if (Date.now() - lastTyping > 1200) { lastTyping = Date.now(); typing.send({ from: state.me.id }); }
     });
   }
 
   function appendMessage(m) {
     const box = document.getElementById('msgs');
-    if (!box) return;
+    if (!box || renderedIds.has(m.id)) return; // 실시간 수신과 전송 결과가 겹치면 한 번만 표시
+    renderedIds.add(m.id);
+    box.querySelector('.day-sep:only-child')?.remove();
     const d = parseDate(m.createdAt);
     const day = d.toDateString();
     let html = '';
@@ -910,7 +974,7 @@
         ${me.isAdmin ? '<a href="#/admin">🛡️ 신고 관리 (관리자)<b class="badge inline" id="badgeReports"></b></a>' : ''}
         <a href="#/blocks">⛔ 차단 목록</a>
         ${me.provider === 'email' ? '<button type="button" id="pwBtn">🔑 비밀번호 변경</button>' : ''}
-        <a href="/api/me/export" download>📥 내 정보 내려받기</a>
+        <button type="button" data-export>📥 내 정보 내려받기</button>
         <a href="#/policy/terms">📄 이용약관</a>
         <a href="#/policy/privacy">🔒 개인정보처리방침</a>
         <a href="#/policy/location">📍 위치기반서비스 이용약관</a>
@@ -933,24 +997,37 @@
     });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const fd = new FormData(form);
-      const picked = (id) => [...document.querySelectorAll(`#${id} .chip.on`)].map((x) => x.dataset.v).join(',');
-      fd.set('workoutDays', picked('dayChips'));
-      fd.set('workoutTimes', picked('timeChips'));
-      fd.set('isPublic', form.isPublic.checked ? 'true' : 'false');
-      if (!form.photo.files.length) fd.delete('photo');
+      const picked = (id) => [...document.querySelectorAll(`#${id} .chip.on`)].map((x) => x.dataset.v);
+      const v = (name) => form[name].value;
+      const p = {
+        nickname: v('nickname'), gender: v('gender'), age: v('age'), career: v('career'),
+        bench: v('bench'), squat: v('squat'), deadlift: v('deadlift'), gymName: v('gymName'),
+        workoutDays: picked('dayChips'), workoutTimes: picked('timeChips'), bio: v('bio'),
+        prefGender: v('prefGender'), prefAgeMin: v('prefAgeMin'), prefAgeMax: v('prefAgeMax'),
+        prefMinTotal: v('prefMinTotal'), prefNote: v('prefNote'), isPublic: form.isPublic.checked,
+      };
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      const oldPhoto = me.photoPath;
+      let newPhoto = null;
       try {
-        await api('/api/profile', { method: 'PUT', body: fd });
+        if (form.photo.files.length) p.photo = newPhoto = await Backend.uploadPhoto(me.id, form.photo.files[0]);
+        else if (form.removePhoto?.checked) p.photo = null;
+        await Backend.updateProfile(p);
+        if ('photo' in p && oldPhoto) Backend.removePhoto(oldPhoto); // 바뀐 사진의 이전 파일 삭제
         await loadMe();
         toast('프로필이 저장되었어요');
         location.hash = '#/';
-      } catch (err) { toast(err.message); btn.disabled = false; }
+      } catch (err) {
+        if (newPhoto) Backend.removePhoto(newPhoto);
+        if (!handleCodeError(err)) toast(err.message);
+        btn.disabled = false;
+      }
     });
+    bindExport($app);
     document.getElementById('logoutBtn').addEventListener('click', logout);
     document.getElementById('deleteBtn').addEventListener('click', openDeleteAccount);
     document.getElementById('pwBtn')?.addEventListener('click', openChangePassword);
-    if (me.isAdmin) api('/api/badges').then((b) => { document.getElementById('badgeReports').textContent = b.reports || ''; }).catch(() => {});
+    if (me.isAdmin) Backend.badges().then((b) => { document.getElementById('badgeReports').textContent = b.reports || ''; }).catch(() => {});
   }
 
   function openChangePassword() {
@@ -966,7 +1043,7 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
-        await api('/api/me/password', { method: 'PUT', body: { current: form.current.value, next: form.next.value } });
+        await Backend.changePassword(state.me.email, form.current.value, form.next.value);
         closeModal(); toast('비밀번호를 변경했어요');
       } catch (err) { toast(err.message); }
     });
@@ -979,7 +1056,7 @@
       <div class="stack">
         <div class="banner small" style="display:block">탈퇴하면 프로필, 사진, 동네 인증, 쪽지, 채팅 내용이 <b>즉시 삭제되고 복구할 수 없어요.</b>
           상대방 채팅방에서도 대화가 사라져요.${state.me.suspended ? '<br>이용 정지 상태에서 탈퇴하면 같은 이메일로 다시 가입할 수 없어요.' : ''}</div>
-        <a class="link small" href="/api/me/export" download>📥 탈퇴 전에 내 정보 내려받기</a>
+        <button type="button" class="link small" data-export style="text-align:left">📥 탈퇴 전에 내 정보 내려받기</button>
         <form id="delForm" class="stack">
           ${email ? '<label class="field"><span>비밀번호 확인</span><input type="password" name="password" required autocomplete="current-password"></label>'
             : "<label class=\"field\"><span>확인을 위해 '탈퇴'를 입력해 주세요</span><input type=\"text\" name=\"confirm\" required></label>"}
@@ -987,26 +1064,66 @@
           <button class="btn block" type="button" data-close>취소</button>
         </form>
       </div>`);
+    bindExport($modalBody);
     const form = document.getElementById('delForm');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        await api('/api/me', { method: 'DELETE', body: email ? { password: form.password.value } : { confirm: form.confirm.value } });
-        state.me = null; state.socket?.disconnect(); state.socket = null;
+        disconnectLive();
+        await Backend.deleteAccount(state.me, email ? { password: form.password.value } : { confirm: form.confirm.value });
+        state.me = null;
         closeModal(); toast('탈퇴가 완료되었어요. 그동안 짐짝을 이용해 주셔서 감사해요.');
         location.hash = '#/login';
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(err.message); btn.disabled = false; }
     });
   }
 
   // ------------------------------------------------------------ boot
+  function showSetupError(err) {
+    $app.innerHTML = '';
+    $app.append(h(`
+      <div class="auth-wrap"><div class="auth-card card stack">
+        <h2>⚙️ Supabase 설정이 필요해요</h2>
+        <div class="small">Supabase 에 연결했지만 짐짝 데이터베이스가 아직 준비되지 않았어요.</div>
+        <ol class="small" style="padding-left:18px;margin:0;line-height:1.7">
+          <li>Supabase 대시보드 → <b>SQL Editor</b> 를 열어요.</li>
+          <li>프로젝트의 <code>supabase/schema.sql</code> 내용을 전부 붙여넣고 <b>Run</b> 을 눌러요.</li>
+          <li>이 페이지를 새로고침해요.</li>
+        </ol>
+        <div class="small muted">오류: ${esc(err.message)}</div>
+      </div></div>`));
+  }
+
   (async () => {
-    state.config = await api('/api/config');
-    const authError = new URLSearchParams(location.search).get('auth_error');
-    if (authError) {
-      history.replaceState(null, '', '/' + location.hash);
-      setTimeout(() => toast(AUTH_ERRORS[authError] || AUTH_ERRORS.provider), 300);
+    const C = window.GYMJJAK_CONFIG;
+    let settings;
+    try { settings = await Backend.settings(); } catch (e) { showSetupError(e); return; }
+    state.config = {
+      days: ['월', '화', '수', '목', '금', '토', '일'],
+      times: ['새벽', '오전', '점심', '오후', '저녁', '밤'],
+      careers: ['6개월 미만', '6개월~1년', '1~2년', '2~3년', '3~5년', '5년 이상'],
+      ageMin: 14, ageMax: 99, max1rm: 500,
+      allowManualLocation: settings.allowManualLocation,
+      verifyValidDays: settings.verifyValidDays,
+      kakaoJsKey: C.kakaoJsKey || '',
+      loginProviders: C.authProviders || [],
+      reportReasons: ['부적절한 사진·프로필', '욕설·비하·혐오 표현', '성희롱·불쾌한 연락', '스팸·광고·영업', '사기·금전 요구', '미성년자 의심', '기타'],
+      service: { ...C.service, termsVersion: settings.termsVersion, geocoder: C.kakaoJsKey ? 'kakao' : 'osm',
+                 locationLogKeepDays: 183, reportKeepDays: 365, verifyValidDays: settings.verifyValidDays },
+    };
+
+    // 이메일 인증 링크 / 소셜 로그인에서 돌아온 경우 (?code=... 또는 ?error_description=...)
+    const q = new URLSearchParams(location.search);
+    if (q.has('code') || q.has('error') || q.has('error_description')) {
+      const session = await Backend.session();
+      if (q.has('error_description')) setTimeout(() => toast(q.get('error_description')), 300);
+      else if (!session) setTimeout(() => toast('이메일 인증이 완료되었어요. 로그인해 주세요.'), 300);
+      history.replaceState(null, '', location.pathname + location.hash);
     }
+    Backend.onAuthChange((event) => {
+      if (event === 'SIGNED_OUT' && state.me) { disconnectLive(); state.me = null; location.hash = '#/login'; }
+    });
     route();
   })();
 })();

@@ -1,25 +1,14 @@
 {
   "name": "gymjjak",
   "version": "1.0.0",
-  "description": "짐짝(GYMJJAK) - 우리 동네 헬스메이트 찾기",
+  "description": "짐짝(GYMJJAK) - 우리 동네 헬스메이트 찾기 (Supabase)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js --dev",
-    "seed": "node seed.js"
+    "start": "node server.js"
   },
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cookie-parser": "^1.4.7",
-    "express": "^5.3.0",
-    "jsonwebtoken": "^9.0.3",
-    "leaflet": "^1.9.4",
-    "multer": "^2.5.0",
-    "socket.io": "^4.8.4"
-  },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=18"
   }
 }

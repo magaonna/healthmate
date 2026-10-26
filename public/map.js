@@ -4,6 +4,7 @@
  *   const m = MateMap.create(el, { center: [lat, lng], zoom })   // zoom 은 Leaflet 기준(클수록 확대)
  *   m.setView(latlng, zoom) / m.showRadius(center, km) / m.setMe(latlng) / m.setPin(latlng)
  *   m.setMates([{ lat, lng, html, label, onClick }]) / m.onClick(({ lat, lng }) => ...) / m.destroy()
+ *   await MateMap.reverseGeocode(lat, lng) → { region, district, providedTo }  (좌표 → 동네 이름)
  */
 (() => {
   let provider = null;
@@ -22,7 +23,7 @@
     loading = (async () => {
       if (config.kakaoJsKey) {
         try {
-          await loadScript(`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(config.kakaoJsKey)}&autoload=false`);
+          await loadScript(`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(config.kakaoJsKey)}&libraries=services&autoload=false`);
           await new Promise((resolve) => kakao.maps.load(resolve));
           provider = 'kakao';
           return;
@@ -33,9 +34,9 @@
         console.warn('KAKAO_JS_KEY 가 없어 OpenStreetMap 지도를 사용합니다.');
       }
       const css = document.createElement('link');
-      css.rel = 'stylesheet'; css.href = '/vendor/leaflet/leaflet.css';
+      css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
       document.head.append(css);
-      await loadScript('/vendor/leaflet/leaflet.js');
+      await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
       provider = 'leaflet';
     })();
     return loading;
@@ -122,8 +123,39 @@
     };
   }
 
+  // ---------------------------------------------------------------- 좌표 → 동네 이름
+  function kakaoRegion(lat, lng) {
+    return new Promise((resolve) => {
+      try {
+        new kakao.maps.services.Geocoder().coord2RegionCode(lng, lat, (docs, status) => {
+          if (status !== kakao.maps.services.Status.OK || !docs.length) return resolve(null);
+          const d = docs.find((x) => x.region_type === 'H') || docs[0]; // 행정동 우선
+          resolve({ region: d.region_3depth_name || d.region_2depth_name, district: `${d.region_1depth_name} ${d.region_2depth_name}`.trim() });
+        });
+      } catch { resolve(null); }
+    });
+  }
+  async function osmRegion(lat, lng) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&accept-language=ko`,
+        { signal: AbortSignal.timeout(6000) });
+      if (!r.ok) return null;
+      const a = (await r.json()).address || {};
+      const region = a.quarter || a.suburb || a.neighbourhood || a.village || a.town || a.city_district || a.borough;
+      return region ? { region, district: [a.city || a.province || a.state, a.borough || a.city_district || a.county].filter(Boolean).join(' ') } : null;
+    } catch { return null; }
+  }
+  async function reverseGeocode(lat, lng) {
+    const providedTo = [];
+    let geo = null;
+    if (provider === 'kakao' && window.kakao?.maps?.services) { providedTo.push('카카오'); geo = await kakaoRegion(lat, lng); }
+    if (!geo) { providedTo.push('OpenStreetMap Foundation'); geo = await osmRegion(lat, lng); }
+    return { region: geo?.region || '', district: geo?.district || '', providedTo: providedTo.join(', ') };
+  }
+
   window.MateMap = {
     load,
+    reverseGeocode,
     get provider() { return provider; },
     create: (el, opts) => (provider === 'kakao' ? createKakao(el, opts) : createLeaflet(el, opts)),
   };
