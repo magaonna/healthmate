@@ -133,8 +133,8 @@
 
   function viewAuth(mode) {
     setChrome({ bars: false });
-    const { loginProviders: providers, allowEmailLogin } = state.config;
-    const signup = mode === 'signup' && allowEmailLogin;
+    const providers = state.config.loginProviders; // 카카오·구글 키를 설정한 경우에만 버튼 표시
+    const signup = mode === 'signup';
     $app.innerHTML = '';
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
@@ -143,35 +143,25 @@
           <h1>동네 헬스메이트</h1>
           <div class="muted">우리 동네에서 같이 운동할 헬스메이트를 찾아보세요</div>
         </div>
-        <div class="card stack">
-          ${providers.includes('kakao') ? `<a class="btn block social kakao" href="/auth/kakao">${KAKAO_ICON}카카오로 시작하기</a>` : ''}
-          ${providers.includes('google') ? `<a class="btn block social google" href="/auth/google">${GOOGLE_ICON}Google로 시작하기</a>` : ''}
-          ${providers.length ? '<div class="small muted" style="text-align:center">처음이면 자동으로 가입돼요. 별도 비밀번호가 필요 없어요.</div>'
-            : `<div class="banner small" style="display:block">
-                <b>로그인 수단이 설정되지 않았어요.</b><br>
-                프로젝트 폴더의 <code>.env.example</code> 을 <code>.env</code> 로 복사한 뒤 카카오·구글 키를 입력하고 서버를 다시 시작해 주세요.
-                ${allowEmailLogin ? '' : '<br>키 없이 둘러보려면 <code>npm run dev</code> 로 실행하면 데모 계정으로 로그인할 수 있어요.'}
-              </div>`}
-        </div>
-        ${allowEmailLogin ? `
-          <details class="dev-login" ${signup || !providers.length ? 'open' : ''}>
-            <summary class="small muted">개발 모드 · 이메일로 ${signup ? '가입' : '로그인'}</summary>
-            <form class="card stack" id="authForm">
-              <label class="field"><span>이메일</span><input type="email" name="email" required autocomplete="email"></label>
-              <label class="field"><span>비밀번호${signup ? ' (8자 이상)' : ''}</span><input type="password" name="password" required minlength="${signup ? 8 : 1}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
-              ${signup ? '<label class="field"><span>닉네임</span><input type="text" name="nickname" required minlength="2" maxlength="20"></label>' : ''}
-              <button class="btn primary block" type="submit">${signup ? '회원가입' : '로그인'}</button>
-              <div class="small muted" style="text-align:center">
-                ${signup ? '<a class="link" href="#/login">로그인으로</a>' : '<a class="link" href="#/signup">이메일로 가입</a>'}
-              </div>
-            </form>
-          </details>` : ''}
+        <form class="card stack" id="authForm">
+          <label class="field"><span>이메일</span><input type="email" name="email" required autocomplete="email"></label>
+          <label class="field"><span>비밀번호${signup ? ' (8자 이상)' : ''}</span><input type="password" name="password" required minlength="${signup ? 8 : 1}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
+          ${signup ? '<label class="field"><span>닉네임</span><input type="text" name="nickname" required minlength="2" maxlength="20"></label>' : ''}
+          <button class="btn primary block" type="submit">${signup ? '회원가입' : '로그인'}</button>
+          <div class="small muted" style="text-align:center">
+            ${signup ? '이미 계정이 있나요? <a class="link" href="#/login">로그인</a>' : '처음이신가요? <a class="link" href="#/signup">회원가입</a>'}
+          </div>
+          ${providers.length ? `
+            <div class="divider small muted">또는</div>
+            ${providers.includes('kakao') ? `<a class="btn block social kakao" href="/auth/kakao">${KAKAO_ICON}카카오로 시작하기</a>` : ''}
+            ${providers.includes('google') ? `<a class="btn block social google" href="/auth/google">${GOOGLE_ICON}Google로 시작하기</a>` : ''}` : ''}
+        </form>
       </div></div>`));
-    document.getElementById('authForm')?.addEventListener('submit', async (e) => {
+    document.getElementById('authForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button'); btn.disabled = true;
       try {
-        await api(`/api/auth/${signup ? 'signup' : 'login'}`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        await api(`/api/auth/${mode}`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
         await loadMe();
         location.hash = state.me.location?.verified ? '#/' : '#/verify';
       } catch (err) { toast(err.message); btn.disabled = false; }

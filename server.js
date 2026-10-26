@@ -18,7 +18,6 @@ const MAX_GPS_ACCURACY_M = 1000;       // 이보다 부정확한 위치는 인�
 const DEV_MODE = process.argv.includes('--dev'); // npm run dev: 개발용 옵션 모두 켜기
 const ALLOW_MANUAL_LOCATION = DEV_MODE || process.env.ALLOW_MANUAL_LOCATION === 'true'; // 개발용: 지도 클릭으로 위치 지정 허용
 const KAKAO_REST_KEY = process.env.KAKAO_REST_KEY || '';
-const ALLOW_EMAIL_LOGIN = DEV_MODE || process.env.ALLOW_EMAIL_LOGIN === 'true';     // 개발용: 이메일 회원가입/로그인 허용 (데모 계정)
 const KAKAO_JS_KEY = process.env.KAKAO_JS_KEY || ''; // 카카오맵 JavaScript 키 (브라우저에 노출되는 키, 카카오 콘솔에서 도메인 제한)
 
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
@@ -212,7 +211,7 @@ function requireVerified(req, res, next) {
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// ---- 소셜 로그인 (카카오 · 구글, OAuth 2.0 authorization code)
+// ---- 소셜 로그인 (선택 기능: 키를 설정한 경우에만 사용. 카카오 · 구글, OAuth 2.0 authorization code)
 
 const OAUTH = {
   kakao: {
@@ -300,14 +299,9 @@ app.get('/auth/:provider/callback', wrap(async (req, res) => {
   res.redirect(isNew ? '/#/welcome' : '/#/');
 }));
 
-// ---- 이메일 로그인 (개발·테스트용, ALLOW_EMAIL_LOGIN=true 일 때만)
+// ---- 이메일 회원가입 / 로그인
 
-function emailLoginOnly(req, res, next) {
-  if (!ALLOW_EMAIL_LOGIN) return res.status(404).json({ error: '이메일 로그인은 지원하지 않습니다. 카카오 또는 구글로 로그인해 주세요.' });
-  next();
-}
-
-app.post('/api/auth/signup', emailLoginOnly, wrap(async (req, res) => {
+app.post('/api/auth/signup', wrap(async (req, res) => {
   const email = clean(req.body.email, 200).toLowerCase();
   const password = typeof req.body.password === 'string' ? req.body.password : '';
   const nickname = clean(req.body.nickname, 20);
@@ -323,7 +317,7 @@ app.post('/api/auth/signup', emailLoginOnly, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.post('/api/auth/login', emailLoginOnly, wrap(async (req, res) => {
+app.post('/api/auth/login', wrap(async (req, res) => {
   const email = clean(req.body.email, 200).toLowerCase();
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (!user?.password_hash || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
@@ -342,7 +336,7 @@ app.get('/api/config', (req, res) => {
   res.json({
     days: DAYS, times: TIMES, careers: CAREERS, ageMin: AGE_MIN, ageMax: AGE_MAX, max1rm: MAX_1RM_KG,
     allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS, kakaoJsKey: KAKAO_JS_KEY,
-    loginProviders: enabledProviders(), allowEmailLogin: ALLOW_EMAIL_LOGIN,
+    loginProviders: enabledProviders(),
   });
 });
 
@@ -663,8 +657,7 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`🏋️  동네 헬스메이트 running at http://localhost:${PORT}`);
   if (ALLOW_MANUAL_LOCATION) console.log('   (개발 모드: 지도 클릭으로 동네 인증 허용)');
-  if (ALLOW_EMAIL_LOGIN) console.log('   (개발 모드: 이메일 회원가입/로그인 허용)');
   const providers = enabledProviders();
-  console.log(`   소셜 로그인: ${providers.length ? providers.join(', ') : '없음 (KAKAO_REST_KEY / GOOGLE_CLIENT_ID·SECRET 설정 필요)'}`);
+  if (providers.length) console.log(`   소셜 로그인(선택): ${providers.join(', ')}`);
   providers.forEach((p) => console.log(`     ${p} Redirect URI: ${callbackUrl(p)}`));
 });
