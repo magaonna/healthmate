@@ -19,13 +19,22 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS profiles (
   user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  gender         TEXT,             -- male | female | other
-  age_group      TEXT,             -- 10s, 20s, 30s ...
-  bio            TEXT,
-  workouts       TEXT,             -- 쉼표로 구분: 웨이트,러닝,...
-  preferred_time TEXT,             -- 새벽 | 오전 | 오후 | 저녁 | 밤
-  level          TEXT,             -- 입문 | 초급 | 중급 | 고급
+  gender         TEXT,             -- male | female
+  age            INTEGER,
+  career         TEXT,             -- 헬스 구력: 6개월 미만 | 6개월~1년 | ...
+  bench          INTEGER,          -- 3대 1RM (kg)
+  squat          INTEGER,
+  deadlift       INTEGER,
   gym_name       TEXT,
+  workout_days   TEXT,             -- 쉼표로 구분: 월,수,금
+  workout_times  TEXT,             -- 쉼표로 구분: 저녁,밤
+  bio            TEXT,
+  -- 원하는 헬스메이트 조건
+  pref_gender    TEXT,             -- male | female | NULL(무관)
+  pref_age_min   INTEGER,
+  pref_age_max   INTEGER,
+  pref_min_total INTEGER,          -- 3대 합계 최소 (kg)
+  pref_note      TEXT,             -- 그 밖의 조건 (자유 입력)
   photo          TEXT,
   is_public      INTEGER NOT NULL DEFAULT 1,
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
@@ -74,5 +83,15 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
 `);
+
+// 이전 버전 DB에 없는 프로필 컬럼 추가
+const profileCols = new Set(db.prepare('PRAGMA table_info(profiles)').all().map((c) => c.name));
+for (const [col, type] of [
+  ['age', 'INTEGER'], ['career', 'TEXT'], ['bench', 'INTEGER'], ['squat', 'INTEGER'], ['deadlift', 'INTEGER'],
+  ['workout_days', 'TEXT'], ['workout_times', 'TEXT'], ['pref_gender', 'TEXT'], ['pref_age_min', 'INTEGER'],
+  ['pref_age_max', 'INTEGER'], ['pref_min_total', 'INTEGER'], ['pref_note', 'TEXT'],
+]) {
+  if (!profileCols.has(col)) db.exec(`ALTER TABLE profiles ADD COLUMN ${col} ${type}`);
+}
 
 module.exports = { db, DATA_DIR };

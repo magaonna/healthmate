@@ -114,7 +114,7 @@ textarea { resize: vertical; min-height: 90px; }
 .user-card { display: flex; gap: 12px; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; cursor: pointer; margin-bottom: 10px; transition: border-color .15s; }
 .user-card:hover, .user-card.hl { border-color: var(--green); }
 .user-card .meta { flex: 1; min-width: 0; }
-.user-card .name { font-weight: 700; }
+.user-card .name { font-weight: 700; white-space: nowrap; flex-shrink: 0; }
 .user-card .bio { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 3px 0 6px; }
 .user-card .tags { display: flex; gap: 4px; flex-wrap: wrap; }
 
@@ -174,3 +174,29 @@ textarea { resize: vertical; min-height: 90px; }
 .toast { position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + 20px); transform: translateX(-50%) translateY(20px); background: #111827; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 2000; max-width: calc(100% - 32px); text-align: center; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .leaflet-container { font: inherit; }
+
+/* ---------- 헬스 프로필 */
+.sm-select { width: auto; padding: 6px 10px; font-size: 13px; }
+.nowrap { white-space: nowrap; }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.user-card .lift-line { margin: 3px 0 6px; font-size: 14px; }
+.user-card .lift-line b { color: var(--green-dark); }
+.lifts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.lifts > div { background: #f9fafb; border-radius: 10px; padding: 10px 4px; text-align: center; }
+.lifts span { display: block; font-size: 11px; color: var(--muted); }
+.lifts b { font-size: 18px; }
+.lifts .total { background: var(--green-soft); color: var(--green-dark); }
+.lifts .total span { color: var(--green-dark); }
+.pref-box { border: 1px dashed var(--green); border-radius: 12px; padding: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 420px) { .grid3 { gap: 6px; } .grid3 select, .grid3 input { padding: 10px 8px; } }
+input[type=number] { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; background: #fff; outline: none; }
+input[type=number]:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.suffix { position: relative; }
+.suffix input { padding-right: 52px; }
+.suffix i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: var(--muted); font-size: 13px; pointer-events: none; }
+.grid3 .suffix input { padding-right: 34px; }
+.field-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.total-line { text-align: right; font-size: 14px; color: var(--muted); }
+.total-line b { color: var(--green-dark); font-size: 20px; margin-left: 6px; }
+section.card h2 { margin-bottom: 0; }

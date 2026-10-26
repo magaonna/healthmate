@@ -3,7 +3,7 @@
   const $app = document.getElementById('app');
   const $modal = document.getElementById('modal');
   const $modalBody = document.getElementById('modalBody');
-  const state = { me: null, config: null, socket: null, map: null, nearby: null, filter: { workout: null, radius: 3 }, chatRoomId: null };
+  const state = { me: null, config: null, socket: null, map: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null };
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,7 +31,7 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
   }
 
-  const genderLabel = { male: '남성', female: '여성', other: '기타' };
+  const genderLabel = { male: '남성', female: '여성' };
   const avatar = (photo, cls = '') => `<span class="avatar ${cls}">${photo ? `<img src="${esc(photo)}" alt="">` : '💪'}</span>`;
   const distLabel = (km) => (km == null ? '' : km < 0.5 ? '500m 이내' : `${km}km`);
   const parseDate = (s) => new Date(s.replace(' ', 'T') + 'Z');
@@ -214,20 +214,30 @@
   // ------------------------------------------------------------ views: 홈 (지도 + 목록)
   async function viewHome() {
     setChrome({ tab: 'home', full: true });
-    const { workouts } = state.config;
+    const { days } = state.config;
+    const f = state.filter;
     $app.innerHTML = '';
     $app.append(h(`
       <div class="home">
         <div class="home-controls stack">
-          ${!state.me.profileComplete ? '<a href="#/me" class="banner">✍️ 프로필을 완성하면 다른 메이트에게 내 프로필이 보여요. <b>작성하기 →</b></a>' : ''}
+          ${!state.me.profileComplete ? '<a href="#/me" class="banner">✍️ 성별·나이·구력·운동 요일을 채워야 메이트들이 나를 알아볼 수 있어요. <b>작성하기 →</b></a>' : ''}
           <div class="row">
-            <select id="radiusSel" style="width:auto;padding:6px 10px">
-              ${[1, 3, 5, 10].map((r) => `<option value="${r}" ${r === state.filter.radius ? 'selected' : ''}>반경 ${r}km</option>`).join('')}
+            <select id="radiusSel" class="sm-select">
+              ${[1, 3, 5, 10].map((r) => `<option value="${r}" ${r === f.radius ? 'selected' : ''}>반경 ${r}km</option>`).join('')}
             </select>
-            <div class="chips" id="workoutChips">
-              <span class="chip ${!state.filter.workout ? 'on' : ''}" data-w="">전체</span>
-              ${workouts.map((w) => `<span class="chip ${state.filter.workout === w ? 'on' : ''}" data-w="${esc(w)}">${esc(w)}</span>`).join('')}
-            </div>
+            <select id="genderSel" class="sm-select">
+              <option value="">성별 전체</option>
+              <option value="male" ${f.gender === 'male' ? 'selected' : ''}>남성</option>
+              <option value="female" ${f.gender === 'female' ? 'selected' : ''}>여성</option>
+            </select>
+            <select id="totalSel" class="sm-select">
+              <option value="">3대 전체</option>
+              ${[200, 300, 400, 500, 600].map((t) => `<option value="${t}" ${f.minTotal === t ? 'selected' : ''}>3대 ${t}+</option>`).join('')}
+            </select>
+          </div>
+          <div class="chips" id="filterChips">
+            <span class="chip ${f.matchOnly ? 'on' : ''}" data-match>✅ 내 조건에 맞는 메이트</span>
+            ${days.map((d) => `<span class="chip ${f.days.includes(d) ? 'on' : ''}" data-day="${esc(d)}">${esc(d)}</span>`).join('')}
           </div>
         </div>
         <div class="home-body">
@@ -241,17 +251,20 @@
     const markers = L.layerGroup().addTo(map);
     let circle = null;
 
-    document.getElementById('radiusSel').addEventListener('change', (e) => { state.filter.radius = Number(e.target.value); load(); });
-    document.getElementById('workoutChips').addEventListener('click', (e) => {
+    document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(); });
+    document.getElementById('genderSel').addEventListener('change', (e) => { f.gender = e.target.value || null; render(); });
+    document.getElementById('totalSel').addEventListener('change', (e) => { f.minTotal = Number(e.target.value) || null; render(); });
+    document.getElementById('filterChips').addEventListener('click', (e) => {
       const c = e.target.closest('.chip'); if (!c) return;
-      state.filter.workout = c.dataset.w || null;
-      document.querySelectorAll('#workoutChips .chip').forEach((x) => x.classList.toggle('on', x === c));
+      if (c.hasAttribute('data-match')) f.matchOnly = !f.matchOnly;
+      else f.days = f.days.includes(c.dataset.day) ? f.days.filter((d) => d !== c.dataset.day) : [...f.days, c.dataset.day];
+      c.classList.toggle('on');
       render();
     });
 
     async function load() {
       try {
-        state.nearby = await api(`/api/profiles/nearby?radius=${state.filter.radius}`);
+        state.nearby = await api(`/api/profiles/nearby?radius=${f.radius}`);
       } catch (e) {
         if (e.code === 'NEED_VERIFY') { location.hash = '#/verify'; return; }
         throw e;
@@ -267,32 +280,37 @@
     }
 
     function render() {
-      const users = state.nearby.users.filter((u) => !state.filter.workout || u.workouts.includes(state.filter.workout));
+      const users = state.nearby.users.filter((u) =>
+        (!f.gender || u.gender === f.gender)
+        && (!f.minTotal || u.total >= f.minTotal)
+        && (!f.days.length || f.days.some((d) => u.workoutDays.includes(d)))
+        && (!f.matchOnly || u.meetsMyPrefs));
       markers.eachLayer((l) => { if (l.options.userId) markers.removeLayer(l); });
       users.forEach((u) => {
-        const icon = L.divIcon({ className: 'mate-marker', html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : '💪', iconSize: [34, 34] });
+        const icon = L.divIcon({ className: 'mate-marker', html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : '🏋️', iconSize: [34, 34] });
         L.marker([u.lat, u.lng], { icon, userId: u.id }).addTo(markers)
-          .bindTooltip(esc(u.nickname), { direction: 'top', offset: [0, -16] })
+          .bindTooltip(esc(u.nickname) + (u.total ? ` · 3대 ${u.total}` : ''), { direction: 'top', offset: [0, -16] })
           .on('click', () => showProfile(u.id));
       });
       const list = document.getElementById('mateList');
       if (!users.length) {
-        list.innerHTML = `<div class="empty"><span class="big">🏃</span>반경 ${state.nearby.radius}km 안에 ${state.filter.workout ? `'${esc(state.filter.workout)}' ` : ''}메이트가 아직 없어요.<br>반경을 넓혀 보세요!</div>`;
+        list.innerHTML = `<div class="empty"><span class="big">🏋️</span>반경 ${state.nearby.radius}km 안에 조건에 맞는 헬스메이트가 아직 없어요.<br>필터를 줄이거나 반경을 넓혀 보세요!</div>`;
         return;
       }
-      list.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(state.nearby.region)} 근처 메이트 <b>${users.length}</b>명</div>` + users.map((u) => `
+      list.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(state.nearby.region)} 근처 헬스메이트 <b>${users.length}</b>명</div>` + users.map((u) => `
         <div class="user-card" data-id="${u.id}">
           ${avatar(u.photo)}
           <div class="meta">
             <div class="row"><span class="name">${esc(u.nickname)}</span>
-              <span class="small muted">${[genderLabel[u.gender], u.ageGroup].filter(Boolean).map(esc).join(' · ')}</span>
-              <span class="spacer"></span><span class="small muted">${distLabel(u.distanceKm)}</span></div>
-            <div class="bio">${esc(u.bio) || '<i>소개가 없어요</i>'}</div>
+              <span class="small muted ellipsis">${esc(personLine(u))}</span>
+              <span class="spacer"></span><span class="small muted nowrap">${distLabel(u.distanceKm)}</span></div>
+            <div class="lift-line">${liftLine(u)}</div>
             <div class="tags">
-              ${u.workouts.map((w) => `<span class="tag">${esc(w)}</span>`).join('')}
-              ${u.preferredTime ? `<span class="tag gray">⏰ ${esc(u.preferredTime)}</span>` : ''}
-              ${u.level ? `<span class="tag gray">${esc(u.level)}</span>` : ''}
+              ${u.workoutDays.length ? `<span class="tag gray">📅 ${esc(u.workoutDays.join('·'))}</span>` : ''}
+              ${u.workoutTimes.length ? `<span class="tag gray">⏰ ${esc(u.workoutTimes.join('·'))}</span>` : ''}
+              ${u.gymName ? `<span class="tag gray">📍 ${esc(u.gymName)}</span>` : ''}
             </div>
+            ${matchTags(u)}
           </div>
         </div>`).join('');
       list.querySelectorAll('.user-card').forEach((el) => el.addEventListener('click', () => showProfile(Number(el.dataset.id))));
@@ -301,35 +319,73 @@
     await load();
   }
 
+  // ------------------------------------------------------------ 프로필 표시 helpers
+  const personLine = (u) => [genderLabel[u.gender], u.age ? `${u.age}세` : '', u.career ? `구력 ${u.career}` : ''].filter(Boolean).join(' · ');
+  function liftLine(u) {
+    if (u.bench == null && u.squat == null && u.deadlift == null) return '<span class="muted small">3대 기록 미입력</span>';
+    const kg = (v) => (v == null ? '-' : v);
+    return `${u.total != null ? `<b>3대 ${u.total}kg</b> ` : ''}<span class="muted small">B ${kg(u.bench)} · S ${kg(u.squat)} · D ${kg(u.deadlift)}</span>`;
+  }
+  function matchTags(u) {
+    const t = [];
+    if (u.meetsMyPrefs && u.iMeetTheirPrefs) t.push('<span class="tag">🤝 서로 조건 맞음</span>');
+    else if (u.meetsMyPrefs) t.push('<span class="tag">✅ 내 조건에 맞음</span>');
+    if (u.sameGym) t.push('<span class="tag">🏢 같은 헬스장</span>');
+    if (u.commonDays?.length) t.push(`<span class="tag">📅 ${esc(u.commonDays.join('·'))} 겹침</span>`);
+    return t.length ? `<div class="tags" style="margin-top:4px">${t.join('')}</div>` : '';
+  }
+  function prefsLines(p) {
+    const lines = [];
+    if (p.gender) lines.push(`${genderLabel[p.gender]} 메이트`);
+    if (p.ageMin != null || p.ageMax != null) lines.push(`${p.ageMin ?? ''}~${p.ageMax ?? ''}세`);
+    if (p.minTotal != null) lines.push(`3대 ${p.minTotal}kg 이상`);
+    return lines;
+  }
+
   async function showProfile(id) {
     const u = await api(`/api/profiles/${id}`);
     let action;
     if (u.roomId) action = `<a class="btn primary block" href="#/chat/${u.roomId}">💬 채팅방으로 이동</a>`;
     else if (u.pendingNote) action = `<button class="btn block" disabled>✉️ 쪽지를 보냈어요 · 답장을 기다리는 중</button>`;
     else action = `
+      ${u.iMeetTheirPrefs === false ? '<div class="banner small">⚠️ 상대가 원하는 메이트 조건과 맞지 않아요. 그래도 쪽지는 보낼 수 있어요.</div>' : ''}
       <form id="noteForm" class="stack">
         <label class="field"><span>쪽지 보내기</span>
-          <textarea name="content" maxlength="300" required placeholder="안녕하세요! 저도 ${esc(u.workouts[0] || '운동')} 좋아해요. 같이 운동하실래요? 🙌"></textarea></label>
+          <textarea name="content" maxlength="300" required placeholder="안녕하세요! ${u.workoutDays.length ? `저도 ${esc(u.workoutDays.join('·'))}에 운동해요.` : ''} 같이 운동하실래요? 💪"></textarea></label>
         <button class="btn primary block" type="submit">✉️ 쪽지 보내기</button>
         <div class="small muted">상대방이 쪽지를 수락하면 1:1 채팅이 열려요.</div>
       </form>`;
+    const prefs = prefsLines(u.prefs);
     openModal(`
       <div class="profile-head">
         ${avatar(u.photo, 'lg')}
         <div>
           <div class="name">${esc(u.nickname)}</div>
-          <div class="muted small">${[genderLabel[u.gender], u.ageGroup].filter(Boolean).map(esc).join(' · ')}</div>
+          <div class="muted small">${esc(personLine(u))}</div>
           <div class="small" style="margin-top:4px">📍 ${esc(u.region || '')} ${u.distanceKm != null ? `· ${distLabel(u.distanceKm)}` : ''}</div>
         </div>
       </div>
       <div class="stack">
-        ${u.bio ? `<div class="note-body">${esc(u.bio)}</div>` : ''}
+        <div class="lifts">
+          <div><span>벤치프레스</span><b>${u.bench ?? '-'}</b></div>
+          <div><span>스쿼트</span><b>${u.squat ?? '-'}</b></div>
+          <div><span>데드리프트</span><b>${u.deadlift ?? '-'}</b></div>
+          <div class="total"><span>3대 합계</span><b>${u.total ?? '-'}</b></div>
+        </div>
+        ${matchTags(u)}
         <dl class="kv">
-          <dt>운동</dt><dd><div class="chips">${u.workouts.map((w) => `<span class="tag">${esc(w)}</span>`).join('') || '-'}</div></dd>
-          <dt>선호 시간</dt><dd>${esc(u.preferredTime || '-')}</dd>
-          <dt>운동 레벨</dt><dd>${esc(u.level || '-')}</dd>
           <dt>헬스장</dt><dd>${esc(u.gymName || '-')}</dd>
+          <dt>운동 요일</dt><dd>${esc(u.workoutDays.join(' · ') || '-')}</dd>
+          <dt>시간대</dt><dd>${esc(u.workoutTimes.join(' · ') || '-')}</dd>
         </dl>
+        ${u.bio ? `<div class="note-body">${esc(u.bio)}</div>` : ''}
+        <div class="pref-box">
+          <div class="small" style="font-weight:700;margin-bottom:6px">🔎 이런 헬스메이트를 찾아요</div>
+          ${prefs.length || u.prefs.note ? `
+            ${prefs.length ? `<div class="chips">${prefs.map((p) => `<span class="tag">${esc(p)}</span>`).join('')}</div>` : ''}
+            ${u.prefs.note ? `<div class="small" style="margin-top:6px;white-space:pre-wrap">${esc(u.prefs.note)}</div>` : ''}`
+          : '<div class="small muted">특별한 조건 없음 · 누구나 환영!</div>'}
+        </div>
         ${action}
         <button class="btn block" data-close>닫기</button>
       </div>`);
@@ -482,8 +538,10 @@
   // ------------------------------------------------------------ views: 내 정보 / 프로필 편집
   function viewMe() {
     setChrome({ tab: 'me' });
-    const me = state.me; const c = state.config;
-    const opt = (list, cur, labels = {}) => `<option value="">선택 안 함</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(labels[v] || v)}</option>`).join('');
+    const me = state.me; const c = state.config; const p = me.prefs;
+    const opt = (list, cur, labels = {}, none = '선택 안 함') => `<option value="">${none}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(labels[v] || v)}</option>`).join('');
+    const num = (name, val, min, max, ph = '') => `<input type="number" inputmode="numeric" name="${name}" value="${val ?? ''}" min="${min}" max="${max}" step="1" placeholder="${ph}">`;
+    const chips = (id, list, on) => `<div class="chips" id="${id}">${list.map((v) => `<span class="chip ${on.includes(v) ? 'on' : ''}" data-v="${esc(v)}">${esc(v)}</span>`).join('')}</div>`;
     $app.innerHTML = '';
     $app.append(h(`
       <h1>내 정보</h1>
@@ -493,35 +551,67 @@
           <div><b>${me.location ? esc(me.location.region) : '미인증'}</b> ${me.location && !me.location.verified ? '<span class="small" style="color:var(--danger)">(만료)</span>' : ''}</div>
         </div><a class="btn sm" href="#/verify">${me.location ? '재인증' : '인증하기'}</a></div>
       </div>
-      <form class="card stack" id="profileForm">
-        <h2>프로필</h2>
-        <div class="photo-pick">
-          <span id="photoPreview">${avatar(me.photo, 'lg')}</span>
-          <div class="stack" style="flex:1">
-            <label class="btn sm" style="width:fit-content">📷 사진 선택<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" hidden></label>
-            ${me.photo ? '<label class="small muted"><input type="checkbox" name="removePhoto" value="true"> 사진 삭제</label>' : ''}
+      <form class="stack" id="profileForm" novalidate>
+        <section class="card stack">
+          <h2>기본 정보</h2>
+          <div class="photo-pick">
+            <span id="photoPreview">${avatar(me.photo, 'lg')}</span>
+            <div class="stack" style="flex:1">
+              <label class="btn sm" style="width:fit-content">📷 사진 선택<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" hidden></label>
+              ${me.photo ? '<label class="small muted"><input type="checkbox" name="removePhoto" value="true"> 사진 삭제</label>' : ''}
+            </div>
           </div>
-        </div>
-        <label class="field"><span>닉네임</span><input type="text" name="nickname" value="${esc(me.nickname)}" minlength="2" maxlength="20" required></label>
-        <div class="row">
-          <label class="field" style="flex:1"><span>성별</span><select name="gender">${opt(['male', 'female', 'other'], me.gender, genderLabel)}</select></label>
-          <label class="field" style="flex:1"><span>연령대</span><select name="ageGroup">${opt(c.ageGroups, me.ageGroup)}</select></label>
-        </div>
-        <div class="field"><span class="small muted" style="font-weight:600;display:block;margin-bottom:6px">관심 운동 (여러 개 선택)</span>
-          <div class="chips" id="wChips">${c.workouts.map((w) => `<span class="chip ${me.workouts.includes(w) ? 'on' : ''}" data-w="${esc(w)}">${esc(w)}</span>`).join('')}</div></div>
-        <div class="row">
-          <label class="field" style="flex:1"><span>선호 시간대</span><select name="preferredTime">${opt(c.times, me.preferredTime)}</select></label>
-          <label class="field" style="flex:1"><span>운동 레벨</span><select name="level">${opt(c.levels, me.level)}</select></label>
-        </div>
-        <label class="field"><span>다니는 헬스장 / 운동 장소</span><input type="text" name="gymName" value="${esc(me.gymName)}" maxlength="50" placeholder="예) 역삼 OO피트니스, 양재천"></label>
-        <label class="field"><span>자기소개</span><textarea name="bio" maxlength="500" placeholder="어떤 메이트를 찾고 있는지 적어주세요. 예) 주 3회 저녁에 같이 하체 하실 분! 3대 300 목표입니다.">${esc(me.bio)}</textarea></label>
-        <label class="row small"><input type="checkbox" name="isPublic" ${me.isPublic ? 'checked' : ''}> 동네 메이트 목록에 내 프로필 공개</label>
+          <label class="field"><span>닉네임</span><input type="text" name="nickname" value="${esc(me.nickname)}" minlength="2" maxlength="20" required></label>
+          <div class="grid3">
+            <label class="field"><span>성별</span><select name="gender">${opt(['male', 'female'], me.gender, genderLabel)}</select></label>
+            <label class="field"><span>나이</span>${num('age', me.age, c.ageMin, c.ageMax, '예) 28')}</label>
+            <label class="field"><span>헬스 구력</span><select name="career">${opt(c.careers, me.career)}</select></label>
+          </div>
+        </section>
+
+        <section class="card stack">
+          <h2>3대 운동 1RM <span class="small muted" style="font-weight:400">(kg)</span></h2>
+          <div class="grid3">
+            <label class="field"><span>벤치프레스</span><div class="suffix">${num('bench', me.bench, 0, c.max1rm, '0')}<i>kg</i></div></label>
+            <label class="field"><span>스쿼트</span><div class="suffix">${num('squat', me.squat, 0, c.max1rm, '0')}<i>kg</i></div></label>
+            <label class="field"><span>데드리프트</span><div class="suffix">${num('deadlift', me.deadlift, 0, c.max1rm, '0')}<i>kg</i></div></label>
+          </div>
+          <div class="total-line">3대 합계 <b id="totalOut">-</b></div>
+        </section>
+
+        <section class="card stack">
+          <h2>헬스장 · 운동 일정</h2>
+          <label class="field"><span>다니는 헬스장</span><input type="text" name="gymName" value="${esc(me.gymName)}" maxlength="50" placeholder="예) 역삼 OO피트니스"></label>
+          <div class="field"><span class="field-label">자주 가는 요일</span>${chips('dayChips', c.days, me.workoutDays)}</div>
+          <div class="field"><span class="field-label">자주 가는 시간대</span>${chips('timeChips', c.times, me.workoutTimes)}</div>
+          <label class="field"><span>자기소개</span><textarea name="bio" maxlength="500" placeholder="예) 주 4회 분할 루틴 하고 있어요. 하체날 서로 스팟 봐주실 분 구합니다!">${esc(me.bio)}</textarea></label>
+        </section>
+
+        <section class="card stack">
+          <h2>원하는 헬스메이트 조건</h2>
+          <div class="grid3">
+            <label class="field"><span>성별</span><select name="prefGender">${opt(['male', 'female'], p.gender, genderLabel, '무관')}</select></label>
+            <label class="field"><span>나이 (최소)</span>${num('prefAgeMin', p.ageMin, c.ageMin, c.ageMax, '무관')}</label>
+            <label class="field"><span>나이 (최대)</span>${num('prefAgeMax', p.ageMax, c.ageMin, c.ageMax, '무관')}</label>
+          </div>
+          <label class="field"><span>3대 합계 최소</span><div class="suffix">${num('prefMinTotal', p.minTotal, 0, c.max1rm * 3, '무관 (예: 300)')}<i>kg 이상</i></div></label>
+          <label class="field"><span>그 밖의 조건</span><input type="text" name="prefNote" value="${esc(p.note)}" maxlength="200" placeholder="예) 주 3회 이상 꾸준히 나오실 분, 스팟 가능하신 분"></label>
+          <div class="small muted">설정한 조건에 맞는 사람에게는 목록에서 '✅ 내 조건에 맞음' 표시가 붙어요.</div>
+        </section>
+
+        <label class="row small card"><input type="checkbox" name="isPublic" ${me.isPublic ? 'checked' : ''}> 동네 헬스메이트 목록에 내 프로필 공개</label>
         <button class="btn primary block" type="submit">저장하기</button>
       </form>
       <div class="row" style="margin-top:16px"><span class="small muted">${esc(me.email)}</span><span class="spacer"></span><button class="btn sm danger" id="logoutBtn">로그아웃</button></div>`));
 
     const form = document.getElementById('profileForm');
-    document.getElementById('wChips').addEventListener('click', (e) => { const ch = e.target.closest('.chip'); if (ch) ch.classList.toggle('on'); });
+    ['dayChips', 'timeChips'].forEach((id) => document.getElementById(id).addEventListener('click', (e) => { const ch = e.target.closest('.chip'); if (ch) ch.classList.toggle('on'); }));
+    const updateTotal = () => {
+      const v = ['bench', 'squat', 'deadlift'].map((n) => form[n].value);
+      document.getElementById('totalOut').textContent = v.every((x) => x !== '') ? `${v.reduce((s, x) => s + Number(x), 0)}kg` : '-';
+    };
+    ['bench', 'squat', 'deadlift'].forEach((n) => form[n].addEventListener('input', updateTotal));
+    updateTotal();
     form.photo.addEventListener('change', () => {
       const f = form.photo.files[0];
       if (f) document.getElementById('photoPreview').innerHTML = avatar(URL.createObjectURL(f), 'lg');
@@ -529,7 +619,9 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      fd.set('workouts', [...document.querySelectorAll('#wChips .chip.on')].map((x) => x.dataset.w).join(','));
+      const picked = (id) => [...document.querySelectorAll(`#${id} .chip.on`)].map((x) => x.dataset.v).join(',');
+      fd.set('workoutDays', picked('dayChips'));
+      fd.set('workoutTimes', picked('timeChips'));
       fd.set('isPublic', form.isPublic.checked ? 'true' : 'false');
       if (!form.photo.files.length) fd.delete('photo');
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;

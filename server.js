@@ -24,11 +24,13 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
   return fs.readFileSync(file, 'utf8').trim();
 })();
 
-const WORKOUTS = ['웨이트', '러닝', '크로스핏', '요가', '필라테스', '수영', '클라이밍', '자전거', '홈트', '등산'];
-const TIMES = ['새벽', '오전', '오후', '저녁', '밤'];
-const LEVELS = ['입문', '초급', '중급', '고급'];
-const GENDERS = ['male', 'female', 'other'];
-const AGE_GROUPS = ['10대', '20대', '30대', '40대', '50대 이상'];
+const DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+const TIMES = ['새벽', '오전', '점심', '오후', '저녁', '밤'];
+const CAREERS = ['6개월 미만', '6개월~1년', '1~2년', '2~3년', '3~5년', '5년 이상'];
+const GENDERS = ['male', 'female'];
+const AGE_MIN = 14;
+const AGE_MAX = 99;
+const MAX_1RM_KG = 500;
 
 // ---------------------------------------------------------------- helpers
 
@@ -93,23 +95,57 @@ async function reverseGeocode(lat, lng) {
 const clean = (v, max = 500) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const pick = (v, allowed) => (allowed.includes(v) ? v : null);
 
-function publicUser(row, viewerLoc) {
+const splitList = (s, allowed) => (s ? s.split(',').filter((v) => allowed.includes(v)) : []);
+
+// 3대 합계: 세 종목을 모두 입력했을 때만 계산
+function totalOf(row) {
+  return row.bench != null && row.squat != null && row.deadlift != null ? row.bench + row.squat + row.deadlift : null;
+}
+
+// candidate 가 owner 가 원하는 헬스메이트 조건을 만족하는지
+function meetsPrefs(candidate, owner) {
+  if (owner.pref_gender && candidate.gender !== owner.pref_gender) return false;
+  if (owner.pref_age_min != null && !(candidate.age >= owner.pref_age_min)) return false;
+  if (owner.pref_age_max != null && !(candidate.age <= owner.pref_age_max)) return false;
+  if (owner.pref_min_total != null && !(totalOf(candidate) >= owner.pref_min_total)) return false;
+  return true;
+}
+
+// viewer: 보는 사람의 userWithProfile 행 (거리·조건 일치 여부 계산용)
+function publicUser(row, viewer) {
   const out = {
     id: row.id,
     nickname: row.nickname,
     gender: row.gender,
-    ageGroup: row.age_group,
-    bio: row.bio || '',
-    workouts: row.workouts ? row.workouts.split(',').filter(Boolean) : [],
-    preferredTime: row.preferred_time,
-    level: row.level,
+    age: row.age,
+    career: row.career,
+    bench: row.bench,
+    squat: row.squat,
+    deadlift: row.deadlift,
+    total: totalOf(row),
     gymName: row.gym_name || '',
+    workoutDays: splitList(row.workout_days, DAYS),
+    workoutTimes: splitList(row.workout_times, TIMES),
+    bio: row.bio || '',
+    prefs: {
+      gender: row.pref_gender,
+      ageMin: row.pref_age_min,
+      ageMax: row.pref_age_max,
+      minTotal: row.pref_min_total,
+      note: row.pref_note || '',
+    },
     photo: row.photo ? `/uploads/${row.photo}` : null,
     region: row.region || null,
   };
   if (row.lat != null) {
     Object.assign(out, approximate(row.lat, row.lng, row.id));
-    if (viewerLoc) out.distanceKm = Math.round(haversineKm(viewerLoc.lat, viewerLoc.lng, row.lat, row.lng) * 10) / 10;
+    if (viewer?.lat != null) out.distanceKm = Math.round(haversineKm(viewer.lat, viewer.lng, row.lat, row.lng) * 10) / 10;
+  }
+  if (viewer && viewer.id !== row.id) {
+    out.meetsMyPrefs = meetsPrefs(row, viewer);     // 상대가 내 조건에 맞는지
+    out.iMeetTheirPrefs = meetsPrefs(viewer, row);  // 내가 상대 조건에 맞는지
+    out.sameGym = !!(row.gym_name && viewer.gym_name && row.gym_name.replace(/\s/g, '') === viewer.gym_name.replace(/\s/g, ''));
+    out.commonDays = out.workoutDays.filter((d) => splitList(viewer.workout_days, DAYS).includes(d));
   }
   return out;
 }
@@ -207,13 +243,16 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/config', (req, res) => {
-  res.json({ workouts: WORKOUTS, times: TIMES, levels: LEVELS, ageGroups: AGE_GROUPS, allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS });
+  res.json({
+    days: DAYS, times: TIMES, careers: CAREERS, ageMin: AGE_MIN, ageMax: AGE_MAX, max1rm: MAX_1RM_KG,
+    allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS,
+  });
 });
 
 app.get('/api/me', auth, (req, res) => {
   const row = userWithProfile.get(req.user.id);
   const loc = getLocation(req.user.id);
-  const me = publicUser(row);
+  const me = publicUser(row, row);
   // 본인에게는 정확한 좌표를 돌려준다
   if (loc) { me.lat = loc.lat; me.lng = loc.lng; }
   res.json({
@@ -221,7 +260,7 @@ app.get('/api/me', auth, (req, res) => {
     email: req.user.email,
     isPublic: !!row.is_public,
     location: loc ? { region: loc.region, district: loc.district, verifiedAt: loc.verified_at, verified: isVerified(loc) } : null,
-    profileComplete: !!(row.workouts && row.bio),
+    profileComplete: !!(row.gender && row.age && row.career && row.workout_days),
   });
 });
 
@@ -252,11 +291,32 @@ app.post('/api/location/verify', auth, wrap(async (req, res) => {
 
 // ---- 프로필
 
+// 빈 값은 null, 범위를 벗어나면 에러 메시지를 errors 에 담는다
+function optInt(v, min, max, label, errors) {
+  if (v == null || String(v).trim() === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < min || n > max) { errors.push(`${label}: ${min}~${max} 사이 숫자로 입력해 주세요.`); return null; }
+  return n;
+}
+const listOf = (v, allowed) => (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => x.trim()).filter((x) => allowed.includes(x));
+
 app.put('/api/profile', auth, upload.single('photo'), (req, res) => {
   const b = req.body;
   const nickname = clean(b.nickname, 20);
-  const workouts = (Array.isArray(b.workouts) ? b.workouts : String(b.workouts || '').split(','))
-    .map((w) => w.trim()).filter((w) => WORKOUTS.includes(w));
+  const errors = [];
+  const age = optInt(b.age, AGE_MIN, AGE_MAX, '나이', errors);
+  const bench = optInt(b.bench, 0, MAX_1RM_KG, '벤치프레스 1RM', errors);
+  const squat = optInt(b.squat, 0, MAX_1RM_KG, '스쿼트 1RM', errors);
+  const deadlift = optInt(b.deadlift, 0, MAX_1RM_KG, '데드리프트 1RM', errors);
+  const prefAgeMin = optInt(b.prefAgeMin, AGE_MIN, AGE_MAX, '원하는 최소 나이', errors);
+  const prefAgeMax = optInt(b.prefAgeMax, AGE_MIN, AGE_MAX, '원하는 최대 나이', errors);
+  const prefMinTotal = optInt(b.prefMinTotal, 0, MAX_1RM_KG * 3, '원하는 3대 합계', errors);
+  if (prefAgeMin != null && prefAgeMax != null && prefAgeMin > prefAgeMax) errors.push('원하는 나이의 최소값이 최대값보다 클 수 없어요.');
+  if (errors.length) {
+    if (req.file) fs.rm(req.file.path, () => {});
+    return res.status(400).json({ error: errors[0] });
+  }
+
   const prev = db.prepare('SELECT photo FROM profiles WHERE user_id = ?').get(req.user.id);
   let photo = prev?.photo || null;
   if (req.file) {
@@ -269,15 +329,22 @@ app.put('/api/profile', auth, upload.single('photo'), (req, res) => {
 
   if (nickname.length >= 2) db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
   db.prepare(`
-    INSERT INTO profiles (user_id, gender, age_group, bio, workouts, preferred_time, level, gym_name, photo, is_public, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(user_id) DO UPDATE SET gender = excluded.gender, age_group = excluded.age_group, bio = excluded.bio,
-      workouts = excluded.workouts, preferred_time = excluded.preferred_time, level = excluded.level,
-      gym_name = excluded.gym_name, photo = excluded.photo, is_public = excluded.is_public, updated_at = excluded.updated_at`).run(
+    INSERT INTO profiles (user_id, gender, age, career, bench, squat, deadlift, gym_name, workout_days, workout_times, bio,
+      pref_gender, pref_age_min, pref_age_max, pref_min_total, pref_note, photo, is_public, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET gender = excluded.gender, age = excluded.age, career = excluded.career,
+      bench = excluded.bench, squat = excluded.squat, deadlift = excluded.deadlift, gym_name = excluded.gym_name,
+      workout_days = excluded.workout_days, workout_times = excluded.workout_times, bio = excluded.bio,
+      pref_gender = excluded.pref_gender, pref_age_min = excluded.pref_age_min, pref_age_max = excluded.pref_age_max,
+      pref_min_total = excluded.pref_min_total, pref_note = excluded.pref_note,
+      photo = excluded.photo, is_public = excluded.is_public, updated_at = excluded.updated_at`).run(
     req.user.id,
-    pick(b.gender, GENDERS), pick(b.ageGroup, AGE_GROUPS), clean(b.bio, 500), workouts.join(','),
-    pick(b.preferredTime, TIMES), pick(b.level, LEVELS), clean(b.gymName, 50), photo,
-    b.isPublic === 'false' ? 0 : 1,
+    pick(b.gender, GENDERS), age, pick(b.career, CAREERS), bench, squat, deadlift, clean(b.gymName, 50),
+    DAYS.filter((d) => listOf(b.workoutDays, DAYS).includes(d)).join(','),
+    TIMES.filter((t) => listOf(b.workoutTimes, TIMES).includes(t)).join(','),
+    clean(b.bio, 500),
+    pick(b.prefGender, GENDERS), prefAgeMin, prefAgeMax, prefMinTotal, clean(b.prefNote, 200),
+    photo, b.isPublic === 'false' ? 0 : 1,
   );
   res.json({ ok: true });
 });
@@ -297,9 +364,10 @@ app.get('/api/profiles/nearby', auth, requireVerified, (req, res) => {
       AND l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ?`).all(
     req.user.id, `-${VERIFY_VALID_DAYS} days`, lat - dLat, lat + dLat, lng - dLng, lng + dLng);
 
+  const viewer = userWithProfile.get(req.user.id);
   const list = rows
     .filter((r) => haversineKm(lat, lng, r.lat, r.lng) <= radius)
-    .map((r) => publicUser(r, req.loc))
+    .map((r) => publicUser(r, viewer))
     .sort((a, b) => a.distanceKm - b.distanceKm);
   res.json({ radius, center: approximate(lat, lng, req.user.id), region: req.loc.region, users: list });
 });
@@ -307,7 +375,7 @@ app.get('/api/profiles/nearby', auth, requireVerified, (req, res) => {
 app.get('/api/profiles/:id', auth, requireVerified, (req, res) => {
   const row = userWithProfile.get(Number(req.params.id));
   if (!row || (!row.is_public && row.id !== req.user.id)) return res.status(404).json({ error: '프로필을 찾을 수 없습니다.' });
-  const user = publicUser(row, req.loc);
+  const user = publicUser(row, userWithProfile.get(req.user.id));
   const room = roomFor(req.user.id, row.id);
   const pending = db.prepare(`SELECT id FROM notes WHERE from_id = ? AND to_id = ? AND status = 'pending'`).get(req.user.id, row.id);
   res.json({ ...user, roomId: room?.id || null, pendingNote: !!pending });
