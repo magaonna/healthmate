@@ -2,7 +2,7 @@
 
 지도 기반으로 우리 동네에서 같이 운동할 사람을 찾는 웹 서비스입니다.
 
-**흐름:** 회원가입 → GPS 동네 인증 → 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
+**흐름:** 카카오/구글 로그인 → GPS 동네 인증 → 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
 
 ## 실행
 
@@ -10,7 +10,7 @@
 npm install
 npm run seed      # (선택) 강남역 주변 데모 유저 8명 생성: demo1~8@healthmate.local / test1234
 npm start         # http://localhost:3000
-npm run dev       # 개발 모드: 지도 클릭으로 동네 인증 가능 + 파일 변경 시 자동 재시작
+npm run dev       # 개발 모드: 이메일 로그인(데모 계정) + 지도 클릭으로 동네 인증 + 자동 재시작
 ```
 
 Node.js 22.13 이상이 필요합니다(내장 `node:sqlite` 사용, 별도 DB 설치 불필요).
@@ -22,12 +22,42 @@ Node.js 22.13 이상이 필요합니다(내장 `node:sqlite` 사용, 별도 DB �
 | 변수 | 설명 |
 | --- | --- |
 | `PORT` | 서버 포트 (기본 3000) |
+| `BASE_URL` | 서비스 주소 (기본 `http://localhost:3000`). 소셜 로그인 Redirect URI 생성에 사용 → 배포 시 `https://내도메인.com` 으로 지정 |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 구글 로그인 OAuth 클라이언트 |
+| `KAKAO_CLIENT_SECRET` | 카카오 로그인 Client Secret (콘솔에서 사용 설정한 경우만) |
+| `ALLOW_EMAIL_LOGIN` | `true` 면 이메일 회원가입/로그인 허용 (개발/데모용, 운영에선 끄세요) |
 | `JWT_SECRET` | 로그인 토큰 서명 키. 없으면 `data/.jwt_secret` 에 자동 생성 |
 | `KAKAO_JS_KEY` | **카카오맵 JavaScript 키.** 설정하면 지도가 카카오맵으로 표시됨. 없으면 OpenStreetMap으로 대체 |
-| `KAKAO_REST_KEY` | 카카오 REST API 키. 설정하면 행정동 이름을 카카오 로컬 API로 조회(국내에선 권장). 없으면 OpenStreetMap Nominatim 사용 |
+| `KAKAO_REST_KEY` | 카카오 REST API 키. **카카오 로그인** + 동네 인증 시 행정동 이름 조회(없으면 OpenStreetMap Nominatim)에 사용 |
 | `ALLOW_MANUAL_LOCATION` | `true` 면 GPS 없이 지도 클릭으로 인증 허용 (개발/테스트용, 운영에선 끄세요) |
 | `DATA_DIR` | DB와 업로드 사진 저장 위치 (기본 `./data`) |
 | `NODE_ENV=production` | 쿠키에 `Secure` 플래그 적용 (HTTPS 필수) |
+
+## 소셜 로그인 설정
+
+회원가입/로그인은 **카카오**와 **구글** 계정으로만 합니다 (휴대폰 번호와 연결된 계정 위주라 무분별한 가짜 계정을 줄이기 위함). 처음 로그인하면 자동 가입 → 닉네임 확인 → 동네 인증 순서로 진행됩니다.
+
+**카카오 로그인** (카카오맵과 같은 앱 사용)
+1. [카카오 개발자 콘솔](https://developers.kakao.com/console/app) → 내 애플리케이션 → **카카오 로그인** 활성화
+2. **Redirect URI** 등록: `{BASE_URL}/auth/kakao/callback` (예: `http://localhost:3000/auth/kakao/callback`)
+3. **동의항목**에서 `닉네임` 을 선택 동의로 설정 (닉네임 기본값으로 사용, 없어도 동작)
+4. (선택) 보안 → Client Secret 을 켰다면 `KAKAO_CLIENT_SECRET` 지정
+
+**구글 로그인**
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → 프로젝트 생성 → **OAuth 동의 화면** 구성 (외부, 앱 이름·이메일 입력)
+2. **사용자 인증 정보 → OAuth 클라이언트 ID 만들기** → 유형: 웹 애플리케이션
+3. **승인된 리디렉션 URI**: `{BASE_URL}/auth/google/callback`
+4. 발급된 클라이언트 ID/보안 비밀번호를 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 으로 지정
+5. 테스트 중에는 동의 화면의 '테스트 사용자'만 로그인 가능 → 출시 전 **앱 게시** 필요
+
+```bash
+BASE_URL=http://localhost:3000 \
+KAKAO_REST_KEY=... KAKAO_JS_KEY=... \
+GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
+npm start
+```
+
+서버를 시작하면 콘솔에 등록해야 할 Redirect URI 가 출력됩니다. 키가 하나도 없으면 로그인 화면에 설정 안내가 표시됩니다.
 
 ## 카카오맵 설정
 
@@ -47,7 +77,7 @@ KAKAO_JS_KEY=JavaScript키 KAKAO_REST_KEY=REST_API키 npm start
 
 ## 주요 기능
 
-- **회원가입/로그인** – 이메일 + 비밀번호(bcrypt), httpOnly JWT 쿠키
+- **회원가입/로그인** – 카카오·구글 소셜 로그인(OAuth 2.0, state 로 CSRF 방지), httpOnly JWT 쿠키. 이메일 로그인은 개발 모드 전용
 - **동네 인증** – 브라우저 GPS(정확도 1km 이내만 인정) → 역지오코딩으로 동네 이름 확정, 30일간 유효
 - **위치 프라이버시** – 정확한 좌표는 서버에만 저장, 다른 유저에게는 약 300m 격자 + 고정 오프셋을 적용한 근사 좌표만 노출
 - **헬스 프로필** – 사진, 닉네임, 성별, 나이, 헬스 구력, 3대 1RM(벤치프레스·스쿼트·데드리프트, 합계 자동 계산), 다니는 헬스장, 자주 가는 요일·시간대, 자기소개, 공개 여부

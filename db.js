@@ -11,10 +11,13 @@ db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  email         TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
+  provider      TEXT NOT NULL DEFAULT 'email', -- kakao | google | email(개발용)
+  provider_id   TEXT,                          -- 카카오 회원번호 / 구글 sub
+  email         TEXT UNIQUE,                   -- email 계정만 사용 (소셜 계정은 NULL)
+  password_hash TEXT,                          -- email 계정만 사용
   nickname      TEXT NOT NULL,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (provider, provider_id)
 );
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -83,6 +86,29 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
 `);
+
+// 이전 버전 DB: users 테이블에 소셜 로그인 컬럼이 없으면 테이블을 다시 만든다 (NOT NULL 제약 변경은 재생성만 가능)
+if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'provider')) {
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
+    CREATE TABLE users_new (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider      TEXT NOT NULL DEFAULT 'email',
+      provider_id   TEXT,
+      email         TEXT UNIQUE,
+      password_hash TEXT,
+      nickname      TEXT NOT NULL,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (provider, provider_id)
+    );
+    INSERT INTO users_new (id, provider, email, password_hash, nickname, created_at)
+      SELECT id, 'email', email, password_hash, nickname, created_at FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+    COMMIT;
+    PRAGMA foreign_keys = ON;`);
+}
 
 // 이전 버전 DB에 없는 프로필 컬럼 추가
 const profileCols = new Set(db.prepare('PRAGMA table_info(profiles)').all().map((c) => c.name));

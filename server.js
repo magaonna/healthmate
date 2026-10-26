@@ -17,6 +17,7 @@ const MAX_RADIUS_KM = 10;
 const MAX_GPS_ACCURACY_M = 1000;       // 이보다 부정확한 위치는 인증 거부
 const ALLOW_MANUAL_LOCATION = process.env.ALLOW_MANUAL_LOCATION === 'true'; // 개발용: 지도 클릭으로 위치 지정 허용
 const KAKAO_REST_KEY = process.env.KAKAO_REST_KEY || '';
+const ALLOW_EMAIL_LOGIN = process.env.ALLOW_EMAIL_LOGIN === 'true';     // 개발용: 이메일 회원가입/로그인 허용 (데모 계정)
 const KAKAO_JS_KEY = process.env.KAKAO_JS_KEY || ''; // 카카오맵 JavaScript 키 (브라우저에 노출되는 키, 카카오 콘솔에서 도메인 제한)
 
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
@@ -192,7 +193,7 @@ function issueToken(res, userId) {
 function auth(req, res, next) {
   try {
     const { uid } = jwt.verify(req.cookies.token || '', JWT_SECRET);
-    const user = db.prepare('SELECT id, email, nickname FROM users WHERE id = ?').get(uid);
+    const user = db.prepare('SELECT id, provider, email, nickname FROM users WHERE id = ?').get(uid);
     if (!user) throw new Error('no user');
     req.user = user;
     next();
@@ -210,9 +211,102 @@ function requireVerified(req, res, next) {
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// ---- 인증
+// ---- 소셜 로그인 (카카오 · 구글, OAuth 2.0 authorization code)
 
-app.post('/api/auth/signup', wrap(async (req, res) => {
+const OAUTH = {
+  kakao: {
+    clientId: KAKAO_REST_KEY,
+    clientSecret: process.env.KAKAO_CLIENT_SECRET || '', // 카카오 콘솔에서 Client Secret 을 켰을 때만
+    authorizeUrl: 'https://kauth.kakao.com/oauth/authorize',
+    tokenUrl: 'https://kauth.kakao.com/oauth/token',
+    scope: '',
+    async profile(accessToken) {
+      const me = await fetchJson('https://kapi.kakao.com/v2/user/me', { headers: { Authorization: `Bearer ${accessToken}` } });
+      return { id: String(me.id), nickname: me.kakao_account?.profile?.nickname || me.properties?.nickname };
+    },
+  },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    scope: 'openid profile',
+    extraParams: { prompt: 'select_account' },
+    async profile(accessToken) {
+      const me = await fetchJson('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } });
+      return { id: String(me.sub), nickname: me.given_name || me.name };
+    },
+  },
+};
+const enabledProviders = () => Object.keys(OAUTH).filter((p) => OAUTH[p].clientId && (p !== 'google' || OAUTH[p].clientSecret));
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const callbackUrl = (provider) => `${BASE_URL}/auth/${provider}/callback`;
+
+async function fetchJson(url, init = {}) {
+  const r = await fetch(url, { ...init, signal: AbortSignal.timeout(8000) });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`${url} → ${r.status} ${JSON.stringify(body)}`);
+  return body;
+}
+
+app.get('/auth/:provider', (req, res) => {
+  const provider = req.params.provider;
+  if (!enabledProviders().includes(provider)) return res.redirect('/?auth_error=disabled#/login');
+  const cfg = OAUTH[provider];
+  const state = crypto.randomBytes(16).toString('hex');
+  // CSRF 방지: state 를 쿠키에 저장해 두고 콜백에서 비교
+  res.cookie(`oauth_state_${provider}`, state, { httpOnly: true, sameSite: 'lax', secure: COOKIE_OPTS.secure, maxAge: 10 * 60 * 1000 });
+  const params = new URLSearchParams({ client_id: cfg.clientId, redirect_uri: callbackUrl(provider), response_type: 'code', state, ...cfg.extraParams });
+  if (cfg.scope) params.set('scope', cfg.scope);
+  res.redirect(`${cfg.authorizeUrl}?${params}`);
+});
+
+app.get('/auth/:provider/callback', wrap(async (req, res) => {
+  const provider = req.params.provider;
+  if (!enabledProviders().includes(provider)) return res.redirect('/?auth_error=disabled#/login');
+  const cfg = OAUTH[provider];
+  const expected = req.cookies[`oauth_state_${provider}`];
+  res.clearCookie(`oauth_state_${provider}`);
+  if (req.query.error) return res.redirect('/?auth_error=cancelled#/login');        // 사용자가 동의 화면에서 취소
+  if (!expected || req.query.state !== expected || !req.query.code) return res.redirect('/?auth_error=state#/login');
+
+  let profile;
+  try {
+    const token = await fetchJson(cfg.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code', client_id: cfg.clientId, redirect_uri: callbackUrl(provider), code: String(req.query.code),
+        ...(cfg.clientSecret ? { client_secret: cfg.clientSecret } : {}),
+      }),
+    });
+    profile = await cfg.profile(token.access_token);
+  } catch (e) {
+    console.error(`${provider} login failed:`, e.message);
+    return res.redirect('/?auth_error=provider#/login');
+  }
+
+  let user = db.prepare('SELECT id FROM users WHERE provider = ? AND provider_id = ?').get(provider, profile.id);
+  let isNew = false;
+  if (!user) {
+    const nickname = clean(profile.nickname || '', 20).length >= 2 ? clean(profile.nickname, 20) : `헬스메이트${crypto.randomInt(1000, 10000)}`;
+    const { lastInsertRowid } = db.prepare('INSERT INTO users (provider, provider_id, nickname) VALUES (?, ?, ?)').run(provider, profile.id, nickname);
+    db.prepare('INSERT INTO profiles (user_id) VALUES (?)').run(lastInsertRowid);
+    user = { id: Number(lastInsertRowid) };
+    isNew = true;
+  }
+  issueToken(res, user.id);
+  res.redirect(isNew ? '/#/welcome' : '/#/');
+}));
+
+// ---- 이메일 로그인 (개발·테스트용, ALLOW_EMAIL_LOGIN=true 일 때만)
+
+function emailLoginOnly(req, res, next) {
+  if (!ALLOW_EMAIL_LOGIN) return res.status(404).json({ error: '이메일 로그인은 지원하지 않습니다. 카카오 또는 구글로 로그인해 주세요.' });
+  next();
+}
+
+app.post('/api/auth/signup', emailLoginOnly, wrap(async (req, res) => {
   const email = clean(req.body.email, 200).toLowerCase();
   const password = typeof req.body.password === 'string' ? req.body.password : '';
   const nickname = clean(req.body.nickname, 20);
@@ -228,10 +322,10 @@ app.post('/api/auth/signup', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.post('/api/auth/login', wrap(async (req, res) => {
+app.post('/api/auth/login', emailLoginOnly, wrap(async (req, res) => {
   const email = clean(req.body.email, 200).toLowerCase();
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
+  if (!user?.password_hash || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash))) {
     return res.status(401).json({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
   }
   issueToken(res, user.id);
@@ -247,6 +341,7 @@ app.get('/api/config', (req, res) => {
   res.json({
     days: DAYS, times: TIMES, careers: CAREERS, ageMin: AGE_MIN, ageMax: AGE_MAX, max1rm: MAX_1RM_KG,
     allowManualLocation: ALLOW_MANUAL_LOCATION, verifyValidDays: VERIFY_VALID_DAYS, kakaoJsKey: KAKAO_JS_KEY,
+    loginProviders: enabledProviders(), allowEmailLogin: ALLOW_EMAIL_LOGIN,
   });
 });
 
@@ -259,10 +354,18 @@ app.get('/api/me', auth, (req, res) => {
   res.json({
     ...me,
     email: req.user.email,
+    provider: req.user.provider,
     isPublic: !!row.is_public,
     location: loc ? { region: loc.region, district: loc.district, verifiedAt: loc.verified_at, verified: isVerified(loc) } : null,
     profileComplete: !!(row.gender && row.age && row.career && row.workout_days),
   });
+});
+
+app.put('/api/me/nickname', auth, (req, res) => {
+  const nickname = clean(req.body.nickname, 20);
+  if (nickname.length < 2) return res.status(400).json({ error: '닉네임은 2~20자로 입력해 주세요.' });
+  db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(nickname, req.user.id);
+  res.json({ ok: true });
 });
 
 // ---- 동네 인증
@@ -559,4 +662,8 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`🏋️  동네 헬스메이트 running at http://localhost:${PORT}`);
   if (ALLOW_MANUAL_LOCATION) console.log('   (개발 모드: 지도 클릭으로 동네 인증 허용)');
+  if (ALLOW_EMAIL_LOGIN) console.log('   (개발 모드: 이메일 회원가입/로그인 허용)');
+  const providers = enabledProviders();
+  console.log(`   소셜 로그인: ${providers.length ? providers.join(', ') : '없음 (KAKAO_REST_KEY / GOOGLE_CLIENT_ID·SECRET 설정 필요)'}`);
+  providers.forEach((p) => console.log(`     ${p} Redirect URI: ${callbackUrl(p)}`));
 });

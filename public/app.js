@@ -96,6 +96,7 @@
   const routes = [
     [/^#\/login$/, viewAuth.bind(null, 'login'), { public: true }],
     [/^#\/signup$/, viewAuth.bind(null, 'signup'), { public: true }],
+    [/^#\/welcome$/, viewWelcome, { noVerify: true }],
     [/^#\/verify$/, viewVerify, { noVerify: true }],
     [/^#\/me$/, viewMe, { noVerify: true }],
     [/^#\/notes$/, viewNotes],
@@ -121,34 +122,81 @@
   window.addEventListener('hashchange', route);
 
   // ------------------------------------------------------------ views: auth
+  const KAKAO_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#191919" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.27 4.66 6.67-.2.75-.74 2.72-.85 3.14-.13.52.19.51.4.37.17-.11 2.65-1.8 3.72-2.53.67.1 1.36.15 2.07.15 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg>';
+  const GOOGLE_ICON = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+  const AUTH_ERRORS = {
+    cancelled: '로그인이 취소되었어요.',
+    state: '로그인 요청이 만료되었어요. 다시 시도해 주세요.',
+    provider: '로그인 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
+    disabled: '지원하지 않는 로그인 방식이에요.',
+  };
+
   function viewAuth(mode) {
     setChrome({ bars: false });
-    const signup = mode === 'signup';
+    const { loginProviders: providers, allowEmailLogin } = state.config;
+    const signup = mode === 'signup' && allowEmailLogin;
     $app.innerHTML = '';
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
           <div class="logo">🏋️</div>
           <h1>동네 헬스메이트</h1>
-          <div class="muted">우리 동네에서 같이 운동할 친구를 찾아보세요</div>
+          <div class="muted">우리 동네에서 같이 운동할 헬스메이트를 찾아보세요</div>
         </div>
-        <form class="card stack" id="authForm">
-          <label class="field"><span>이메일</span><input type="email" name="email" required autocomplete="email"></label>
-          <label class="field"><span>비밀번호${signup ? ' (8자 이상)' : ''}</span><input type="password" name="password" required minlength="${signup ? 8 : 1}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
-          ${signup ? '<label class="field"><span>닉네임</span><input type="text" name="nickname" required minlength="2" maxlength="20"></label>' : ''}
-          <button class="btn primary block" type="submit">${signup ? '회원가입' : '로그인'}</button>
-          <div class="small muted" style="text-align:center">
-            ${signup ? '이미 계정이 있나요? <a class="link" href="#/login">로그인</a>' : '처음이신가요? <a class="link" href="#/signup">회원가입</a>'}
-          </div>
-        </form>
+        <div class="card stack">
+          ${providers.includes('kakao') ? `<a class="btn block social kakao" href="/auth/kakao">${KAKAO_ICON}카카오로 시작하기</a>` : ''}
+          ${providers.includes('google') ? `<a class="btn block social google" href="/auth/google">${GOOGLE_ICON}Google로 시작하기</a>` : ''}
+          ${providers.length ? '<div class="small muted" style="text-align:center">처음이면 자동으로 가입돼요. 별도 비밀번호가 필요 없어요.</div>'
+            : '<div class="banner small">로그인 수단이 설정되지 않았어요. 서버에 KAKAO_REST_KEY 또는 GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET 을 설정해 주세요.</div>'}
+        </div>
+        ${allowEmailLogin ? `
+          <details class="dev-login" ${signup || !providers.length ? 'open' : ''}>
+            <summary class="small muted">개발 모드 · 이메일로 ${signup ? '가입' : '로그인'}</summary>
+            <form class="card stack" id="authForm">
+              <label class="field"><span>이메일</span><input type="email" name="email" required autocomplete="email"></label>
+              <label class="field"><span>비밀번호${signup ? ' (8자 이상)' : ''}</span><input type="password" name="password" required minlength="${signup ? 8 : 1}" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
+              ${signup ? '<label class="field"><span>닉네임</span><input type="text" name="nickname" required minlength="2" maxlength="20"></label>' : ''}
+              <button class="btn primary block" type="submit">${signup ? '회원가입' : '로그인'}</button>
+              <div class="small muted" style="text-align:center">
+                ${signup ? '<a class="link" href="#/login">로그인으로</a>' : '<a class="link" href="#/signup">이메일로 가입</a>'}
+              </div>
+            </form>
+          </details>` : ''}
       </div></div>`));
-    document.getElementById('authForm').addEventListener('submit', async (e) => {
+    document.getElementById('authForm')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button'); btn.disabled = true;
       try {
-        await api(`/api/auth/${mode}`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        await api(`/api/auth/${signup ? 'signup' : 'login'}`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
         await loadMe();
         location.hash = state.me.location?.verified ? '#/' : '#/verify';
+      } catch (err) { toast(err.message); btn.disabled = false; }
+    });
+  }
+
+  // 소셜 로그인으로 처음 가입한 사람: 닉네임 확인 후 동네 인증으로
+  function viewWelcome() {
+    setChrome({ bars: false });
+    $app.innerHTML = '';
+    $app.append(h(`
+      <div class="auth-wrap"><div class="auth-card">
+        <div class="auth-hero">
+          <div class="logo">👋</div>
+          <h1>환영해요!</h1>
+          <div class="muted">동네 헬스메이트에서 사용할 닉네임을 정해 주세요</div>
+        </div>
+        <form class="card stack" id="welcomeForm">
+          <label class="field"><span>닉네임</span><input type="text" name="nickname" value="${esc(state.me.nickname)}" required minlength="2" maxlength="20"></label>
+          <button class="btn primary block" type="submit">다음 · 동네 인증하기</button>
+        </form>
+      </div></div>`));
+    document.getElementById('welcomeForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button'); btn.disabled = true;
+      try {
+        await api('/api/me/nickname', { method: 'PUT', body: { nickname: e.target.nickname.value } });
+        await loadMe();
+        location.hash = '#/verify';
       } catch (err) { toast(err.message); btn.disabled = false; }
     });
   }
@@ -595,7 +643,7 @@
         <label class="row small card"><input type="checkbox" name="isPublic" ${me.isPublic ? 'checked' : ''}> 동네 헬스메이트 목록에 내 프로필 공개</label>
         <button class="btn primary block" type="submit">저장하기</button>
       </form>
-      <div class="row" style="margin-top:16px"><span class="small muted">${esc(me.email)}</span><span class="spacer"></span><button class="btn sm danger" id="logoutBtn">로그아웃</button></div>`));
+      <div class="row" style="margin-top:16px"><span class="small muted">${esc({ kakao: '카카오 계정으로 로그인됨', google: 'Google 계정으로 로그인됨' }[me.provider] || me.email || '')}</span><span class="spacer"></span><button class="btn sm danger" id="logoutBtn">로그아웃</button></div>`));
 
     const form = document.getElementById('profileForm');
     ['dayChips', 'timeChips'].forEach((id) => document.getElementById(id).addEventListener('click', (e) => { const ch = e.target.closest('.chip'); if (ch) ch.classList.toggle('on'); }));
@@ -635,6 +683,11 @@
   // ------------------------------------------------------------ boot
   (async () => {
     state.config = await api('/api/config');
+    const authError = new URLSearchParams(location.search).get('auth_error');
+    if (authError) {
+      history.replaceState(null, '', '/' + location.hash);
+      setTimeout(() => toast(AUTH_ERRORS[authError] || AUTH_ERRORS.provider), 300);
+    }
     route();
   })();
 })();
