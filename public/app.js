@@ -1091,25 +1091,26 @@
   }
 
   // ------------------------------------------------------------ boot
+  // 서버 연결 실패 시 화면. 개발자용 설명(Supabase, SQL 등)은 사용자에게 보이지 않게 콘솔에만 남긴다.
   function showSetupError(err) {
+    console.error('[짐짝] 서버 연결 실패', err);
     $app.innerHTML = '';
     $app.append(h(`
-      <div class="auth-wrap"><div class="auth-card card stack">
-        <h2>⚙️ Supabase 설정이 필요해요</h2>
-        <div class="small">Supabase 에 연결했지만 짐짝 데이터베이스가 아직 준비되지 않았어요.</div>
-        <ol class="small" style="padding-left:18px;margin:0;line-height:1.7">
-          <li>Supabase 대시보드 → <b>SQL Editor</b> 를 열어요.</li>
-          <li>프로젝트의 <code>supabase/schema.sql</code> 내용을 전부 붙여넣고 <b>Run</b> 을 눌러요.</li>
-          <li>이 페이지를 새로고침해요.</li>
-        </ol>
-        <div class="small muted">오류: ${esc(err.message)}</div>
+      <div class="auth-wrap"><div class="auth-card card stack" role="alert">
+        <h2>잠시 연결이 원활하지 않아요</h2>
+        <div class="small muted">인터넷 연결을 확인한 뒤 다시 시도해 주세요. 문제가 계속되면 잠시 후 다시 접속해 주세요.</div>
+        <button class="btn primary block" type="button" id="retryBtn">다시 시도</button>
       </div></div>`));
+    document.getElementById('retryBtn').addEventListener('click', () => location.reload());
   }
 
   (async () => {
     const C = window.GYMJJAK_CONFIG;
     let settings;
-    try { settings = await Backend.settings(); } catch (e) { showSetupError(e); return; }
+    try {
+      if (typeof Backend === 'undefined') throw new Error('Backend not loaded');
+      settings = await Backend.settings();
+    } catch (e) { showSetupError(e); return; }
     state.config = {
       days: ['월', '화', '수', '목', '금', '토', '일'],
       times: ['새벽', '오전', '점심', '오후', '저녁', '밤'],
