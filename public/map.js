@@ -33,11 +33,18 @@
       } else {
         console.warn('KAKAO_JS_KEY 가 없어 OpenStreetMap 지도를 사용합니다.');
       }
-      const css = document.createElement('link');
-      css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.append(css);
-      await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
-      provider = 'leaflet';
+      try {
+        const css = document.createElement('link');
+        css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.append(css);
+        await loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js');
+        provider = 'leaflet';
+      } catch (e) {
+        // 지도를 못 불러와도 목록 · 동네 인증은 계속 쓸 수 있게 '지도 없음' 모드로 동작
+        console.error('지도를 불러오지 못해 지도 없이 표시합니다.', e);
+        provider = 'none';
+        loading = null; // 다음 화면 진입 때 다시 시도
+      }
     })();
     return loading;
   }
@@ -123,6 +130,13 @@
     };
   }
 
+  // ---------------------------------------------------------------- 지도 없음 (지도 스크립트 로드 실패 시)
+  function createNone(el) {
+    el.innerHTML = '<div class="map-unavailable">지도를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</div>';
+    const noop = () => {};
+    return { setView: noop, showRadius: noop, setMe: noop, setPin: noop, setMates: noop, onClick: noop, destroy() { el.innerHTML = ''; } };
+  }
+
   // ---------------------------------------------------------------- 좌표 → 동네 이름
   function kakaoRegion(lat, lng) {
     return new Promise((resolve) => {
@@ -157,6 +171,6 @@
     load,
     reverseGeocode,
     get provider() { return provider; },
-    create: (el, opts) => (provider === 'kakao' ? createKakao(el, opts) : createLeaflet(el, opts)),
+    create: (el, opts) => (provider === 'kakao' ? createKakao(el, opts) : provider === 'leaflet' ? createLeaflet(el, opts) : createNone(el)),
   };
 })();

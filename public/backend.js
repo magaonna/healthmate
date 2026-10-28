@@ -79,7 +79,10 @@
         if (n.status === 'accepted') handlers.noteAccepted(n.room_id);
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, ({ new: m }) => handlers.message(toMsg(m)))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, ({ new: m }) => { if (m.read_at) handlers.read(m.room_id); })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, ({ new: m }) => {
+        // 내가 보낸 메시지를 상대가 읽었을 때만 '1'(안 읽음)을 지운다. 내가 상대 메시지를 읽은 경우는 제외
+        if (m.read_at && m.sender_id === uid) handlers.read(m.room_id);
+      })
       .subscribe((status) => handlers.status(status === 'SUBSCRIBED'));
   }
   function unsubscribe() {
