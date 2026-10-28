@@ -7,6 +7,9 @@
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // Lucide 선형 아이콘 (ISC 라이선스). 이모지 대신 이것만 쓴다 — 디자인 시스템 5장
+  const ICONS = {"map-pin": "<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\" /> <circle cx=\"12\" cy=\"10\" r=\"3\" />", "mail": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7\" />", "message-circle": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\" />", "user": "<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\" /> <circle cx=\"12\" cy=\"7\" r=\"4\" />", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\" /> <path d=\"M7 11V7a5 5 0 0 1 10 0v4\" />", "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\" /> <path d=\"m9 12 2 2 4-4\" />", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <path d=\"m21 21-4.3-4.3\" />", "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />", "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />", "bell": "<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9\" /> <path d=\"M10.3 21a1.94 1.94 0 0 0 3.4 0\" />"};
+  const ic = (name, size = 20) => `<svg class="i" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; };
 
   // 서버(Supabase 함수)의 코드형 오류는 화면 이동으로 처리
@@ -26,7 +29,7 @@
   }
 
   const genderLabel = { male: '남성', female: '여성' };
-  const avatar = (photo, cls = '') => `<span class="avatar ${cls}">${photo ? `<img src="${esc(photo)}" alt="">` : '💪'}</span>`;
+  const avatar = (photo, cls = '') => `<span class="avatar ${cls}">${photo ? `<img src="${esc(photo)}" alt="">` : ic('user', 24)}</span>`;
   // 거리는 서버가 1km 단위로 올림해서 보낸다 (위치 역추적 방지, Q1)
   const distLabel = (km) => (km == null ? '' : km <= 1 ? '1km 이내' : `약 ${km}km`);
   const parseDate = (s) => new Date(s);
@@ -47,7 +50,7 @@
     document.getElementById('tabbar').classList.toggle('hidden', !bars || tab === 'chat');
     $app.classList.toggle('full', full);
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
-    document.getElementById('topRegion').textContent = state.me?.location?.region ? `📍 ${state.me.location.region}` : '';
+    document.getElementById('topRegion').textContent = state.me?.location?.region ? state.me.location.region : '';
     if (state.map) { state.map.destroy(); state.map = null; }
   }
 
@@ -58,8 +61,8 @@
     state.liveFor = state.me.id;
     Backend.subscribe(state.me.id, {
       status: (ok) => { state.live = ok; },
-      noteNew: () => { toast('✉️ 새 쪽지가 도착했어요'); refreshBadges(); if (location.hash.startsWith('#/notes')) route(); },
-      noteAccepted: () => { toast('🎉 쪽지가 수락되었어요! 채팅을 시작해 보세요'); refreshBadges(); },
+      noteNew: () => { toast('새 쪽지가 도착했어요'); refreshBadges(); if (location.hash.startsWith('#/notes')) route(); },
+      noteAccepted: () => { toast('쪽지가 수락되었어요. 채팅을 시작해 보세요.'); refreshBadges(); },
       message: (msg) => {
         if (state.chatRoomId === msg.roomId) { appendMessage(msg); if (msg.senderId !== state.me.id) Backend.markRead(msg.roomId); }
         else if (msg.senderId !== state.me.id) { refreshBadges(); if (location.hash === '#/chats') route(); }
@@ -167,9 +170,14 @@
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
-          <div class="logo">🏋️</div>
-          <h1 class="brand-title">짐짝 <small>GYMJJAK</small></h1>
-          <div class="muted">우리 동네에서 같이 운동할 헬스메이트 찾기</div>
+          <div class="brand" style="margin-bottom:48px">짐짝 <small>GYMJJAK</small></div>
+          <h1>우리 동네에서<br>같이 운동할 사람</h1>
+          <div class="muted">가까운 헬스장의 메이트를 찾고,<br>쪽지로 운동 약속을 잡아 보세요.</div>
+          ${signup ? '' : `<ul class="auth-points">
+            <li>${ic('shield-check', 16)}<span>동네 인증을 마친 회원끼리만 보여요</span></li>
+            <li>${ic('message-circle', 16)}<span>쪽지를 수락한 상대와만 채팅해요</span></li>
+            <li>${ic('lock', 16)}<span>불편한 회원은 바로 차단·신고할 수 있어요</span></li>
+          </ul>`}
         </div>
         ${emailLogin ? `
         <form class="card stack" id="authForm">
@@ -224,7 +232,7 @@
     $app.innerHTML = '';
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
-        <div class="auth-hero"><div class="logo">📧</div><h1>메일함을 확인해 주세요</h1>
+        <div class="auth-hero"><div class="logo">${ic('mail', 32)}</div><h1>메일함을 확인해 주세요</h1>
           <div class="muted"><b>${esc(email)}</b> 로 인증 메일을 보냈어요.<br>메일의 링크를 누르면 가입이 완료돼요.</div></div>
         <div class="card stack">
           <button class="btn block" id="resendBtn">인증 메일 다시 보내기</button>
@@ -297,7 +305,7 @@
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
-          <div class="logo">${isNew ? '👋' : '📄'}</div>
+          <div class="logo">${ic('user', 32)}</div>
           <h1>${isNew ? '짐짝에 오신 걸 환영해요!' : '약관이 변경되었어요'}</h1>
           <div class="muted">${isNew ? '닉네임을 정하고 약관에 동의해 주세요' : '계속 이용하려면 변경된 약관에 동의해 주세요'}</div>
         </div>
@@ -332,12 +340,12 @@
     $app.innerHTML = '';
     $app.append(h(`
       <div class="auth-wrap"><div class="auth-card">
-        <div class="auth-hero"><div class="logo">⛔</div><h1>이용이 정지된 계정이에요</h1></div>
+        <div class="auth-hero"><div class="logo">${ic('lock', 32)}</div><h1>이용이 정지된 계정이에요</h1></div>
         <div class="card stack">
           <dl class="kv"><dt>사유</dt><dd>${esc(sp.reason || '운영정책 위반')}</dd><dt>정지 일시</dt><dd>${esc(parseDate(sp.at).toLocaleString('ko-KR'))}</dd></dl>
           <div class="small muted">정지 중에는 다른 회원에게 프로필이 보이지 않고 쪽지·채팅을 할 수 없어요.
             ${email ? `이의가 있으면 <a class="link" href="mailto:${esc(email)}">${esc(email)}</a>로 문의해 주세요.` : ''}</div>
-          <button class="btn block" data-export>📥 내 정보 내려받기</button>
+          <button class="btn block" data-export>내 정보 내려받기</button>
           <button class="btn block" id="suspLogout">로그아웃</button>
           <button class="btn block danger" id="suspDelete">회원 탈퇴</button>
         </div>
@@ -368,11 +376,11 @@
         ${loc ? `<div>현재 인증된 동네: <b>${esc(loc.region)}</b> <span class="muted small">${esc(loc.district || '')}</span><br>
           <span class="small ${loc.verified ? 'muted' : ''}" style="${loc.verified ? '' : 'color:var(--danger)'}">${loc.verified ? `인증일 ${esc(timeLabel(loc.verifiedAt))} · ${state.config.verifyValidDays}일간 유효` : '인증 기간이 만료되었어요. 다시 인증해 주세요.'}</span></div>` : ''}
         <p class="muted small" style="margin:0">지금 계신 곳의 GPS 위치로 동네를 인증해요. 인증된 동네 반경 안의 헬스메이트만 볼 수 있어요.<br>
-        🔒 다른 사람에게는 정확한 위치가 아닌 대략적인 위치(약 300m 범위)와 1km 단위 거리만 보여요.</p>
+        다른 사람에게는 정확한 위치가 아닌 대략적인 위치(약 300m 범위)와 1km 단위 거리만 보여요.</p>
         <div id="verifyMap"></div>
         <div id="verifyResult" class="small"></div>
-        <button class="btn primary block" id="gpsBtn">📍 현재 위치로 동네 인증하기</button>
-        ${manual ? '<button class="btn block" id="manualBtn" disabled>🗺️ 지도에서 선택한 위치로 인증 (개발 모드)</button><div class="small muted">개발 모드: 지도를 클릭해 위치를 선택할 수 있어요.</div>' : ''}
+        <button class="btn primary block" id="gpsBtn">${ic('map-pin')} 현재 위치로 동네 인증하기</button>
+        ${manual ? '<button class="btn block" id="manualBtn" disabled>지도에서 선택한 위치로 인증 (개발 모드)</button><div class="small muted">개발 모드: 지도를 클릭해 위치를 선택할 수 있어요.</div>' : ''}
       </div>`));
 
     const start = state.me.lat != null ? [state.me.lat, state.me.lng] : [37.5665, 126.978];
@@ -389,10 +397,10 @@
         const geo = await MateMap.reverseGeocode(body.lat, body.lng);
         const res = await Backend.verifyLocation({ ...body, ...geo });
         await loadMe();
-        r.innerHTML = `✅ <b>${esc(res.region)}</b> 인증 완료!`;
+        r.innerHTML = `<b>${esc(res.region)}</b> 인증을 마쳤어요.`;
         toast(`${res.region} 인증이 완료되었어요`);
         setTimeout(() => { location.hash = state.me.profileComplete ? '#/' : '#/me'; }, 800);
-      } catch (e) { r.textContent = '❌ ' + e.message; }
+      } catch (e) { r.textContent = e.message; }
     }
 
     document.getElementById('gpsBtn').addEventListener('click', () => {
@@ -404,7 +412,7 @@
           map.setPin([lat, lng]); map.setView([lat, lng], 15);
           submit({ lat, lng, accuracy });
         },
-        (err) => { document.getElementById('verifyResult').textContent = '❌ 위치 정보를 가져올 수 없어요: ' + (err.code === 1 ? '위치 권한을 허용해 주세요.' : err.message); },
+        (err) => { document.getElementById('verifyResult').textContent = '위치 정보를 가져올 수 없어요. ' + (err.code === 1 ? '위치 권한을 허용해 주세요.' : err.message); },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
       );
     });
@@ -424,7 +432,7 @@
     $app.append(h(`
       <div class="home">
         <div class="home-controls stack">
-          ${!state.me.profileComplete ? '<a href="#/me" class="banner">✍️ 성별·나이·구력·운동 요일을 채워야 메이트들이 나를 알아볼 수 있어요. <b>작성하기 →</b></a>' : ''}
+          ${!state.me.profileComplete ? '<a href="#/me" class="banner">성별·나이·구력·운동 요일을 채우면 메이트들이 나를 알아볼 수 있어요. <b class="link">작성하기</b></a>' : ''}
           <div class="row">
             <select id="radiusSel" class="sm-select">
               ${[1, 3, 5, 10].map((r) => `<option value="${r}" ${r === f.radius ? 'selected' : ''}>반경 ${r}km</option>`).join('')}
@@ -440,7 +448,7 @@
             </select>
           </div>
           <div class="chips" id="filterChips">
-            <span class="chip ${f.matchOnly ? 'on' : ''}" data-match>✅ 내 조건에 맞는 메이트</span>
+            <span class="chip ${f.matchOnly ? 'on' : ''}" data-match>조건 맞는 사람만</span>
             ${days.map((d) => `<span class="chip ${f.days.includes(d) ? 'on' : ''}" data-day="${esc(d)}">${esc(d)}</span>`).join('')}
           </div>
         </div>
@@ -489,13 +497,13 @@
       map.setMates(users.map((u) => ({
         lat: u.lat,
         lng: u.lng,
-        html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : '🏋️',
+        html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : esc((u.nickname || '?').slice(0, 1)),
         label: u.nickname + (u.total ? ` · 3대 ${u.total}` : ''),
         onClick: () => showProfile(u.id).catch((e) => toast(e.message)),
       })));
       const list = document.getElementById('mateList');
       if (!users.length) {
-        list.innerHTML = `<div class="empty"><span class="big">🏋️</span>반경 ${state.nearby.radius}km 안에 조건에 맞는 헬스메이트가 아직 없어요.<br>필터를 줄이거나 반경을 넓혀 보세요!</div>`;
+        list.innerHTML = `<div class="empty"><span class="big">${ic('search', 32)}</span>반경 ${state.nearby.radius}km 안에 조건에 맞는 헬스메이트가 아직 없어요.<br>필터를 줄이거나 반경을 넓혀 보세요.</div>`;
         return;
       }
       list.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(state.nearby.region)} 근처 헬스메이트 <b>${users.length}</b>명</div>` + users.map((u) => `
@@ -507,9 +515,9 @@
               <span class="spacer"></span><span class="small muted nowrap">${distLabel(u.distanceKm)}</span></div>
             <div class="lift-line">${liftLine(u)}</div>
             <div class="tags">
-              ${u.workoutDays.length ? `<span class="tag gray">📅 ${esc(u.workoutDays.join('·'))}</span>` : ''}
-              ${u.workoutTimes.length ? `<span class="tag gray">⏰ ${esc(u.workoutTimes.join('·'))}</span>` : ''}
-              ${u.gymName ? `<span class="tag gray">📍 ${esc(u.gymName)}</span>` : ''}
+              ${u.workoutDays.length ? `<span class="tag gray">${esc(u.workoutDays.join('·'))}</span>` : ''}
+              ${u.workoutTimes.length ? `<span class="tag gray">${esc(u.workoutTimes.join('·'))}</span>` : ''}
+              ${u.gymName ? `<span class="tag gray">${esc(u.gymName)}</span>` : ''}
             </div>
             ${matchTags(u)}
           </div>
@@ -547,10 +555,8 @@
   }
   function matchTags(u) {
     const t = [];
-    if (u.meetsMyPrefs && u.iMeetTheirPrefs) t.push('<span class="tag">🤝 서로 조건 맞음</span>');
-    else if (u.meetsMyPrefs) t.push('<span class="tag">✅ 내 조건에 맞음</span>');
-    if (u.sameGym) t.push('<span class="tag">🏢 같은 헬스장</span>');
-    if (u.commonDays?.length) t.push(`<span class="tag">📅 ${esc(u.commonDays.join('·'))} 겹침</span>`);
+    if (u.meetsMyPrefs && u.iMeetTheirPrefs) t.push('<span class="tag">서로 조건 맞음</span>');
+    else if (u.meetsMyPrefs) t.push('<span class="tag">내 조건에 맞음</span>');
     return t.length ? `<div class="tags" style="margin-top:4px">${t.join('')}</div>` : '';
   }
   function prefsLines(p) {
@@ -564,15 +570,15 @@
   async function showProfile(id) {
     const u = decorate(await Backend.profile(id));
     let action;
-    if (u.roomId) action = `<a class="btn primary block" href="#/chat/${u.roomId}">💬 채팅방으로 이동</a>`;
-    else if (u.pendingNote) action = `<button class="btn block" disabled>✉️ 쪽지를 보냈어요 · 답장을 기다리는 중</button>`;
+    if (u.roomId) action = `<a class="btn primary block" href="#/chat/${u.roomId}">채팅방으로 이동</a>`;
+    else if (u.pendingNote) action = `<button class="btn block" disabled>쪽지를 보냈어요 · 답장을 기다리는 중</button>`;
     else action = `
-      ${u.iMeetTheirPrefs === false ? '<div class="banner small">⚠️ 상대가 원하는 메이트 조건과 맞지 않아요. 그래도 쪽지는 보낼 수 있어요.</div>' : ''}
+      ${u.iMeetTheirPrefs === false ? '<div class="banner small">상대가 원하는 메이트 조건과 맞지 않아요. 그래도 쪽지는 보낼 수 있어요.</div>' : ''}
       <form id="noteForm" class="stack">
         <label class="field"><span>쪽지 보내기</span>
-          <textarea name="content" maxlength="300" required placeholder="안녕하세요! ${u.workoutDays.length ? `저도 ${esc(u.workoutDays.join('·'))}에 운동해요.` : ''} 같이 운동하실래요? 💪"></textarea></label>
-        <button class="btn primary block" type="submit">✉️ 쪽지 보내기</button>
-        <div class="small muted">상대방이 쪽지를 수락하면 1:1 채팅이 열려요.<br>🛡️ 처음 만날 땐 헬스장 등 공개된 장소에서 만나고, 돈이나 개인정보를 요구하면 신고해 주세요.</div>
+          <textarea name="content" maxlength="300" required placeholder="안녕하세요! ${u.workoutDays.length ? `저도 ${esc(u.workoutDays.join('·'))}에 운동해요.` : ''} 같이 운동하실래요?"></textarea></label>
+        <button class="btn primary block" type="submit">쪽지 보내기</button>
+        <div class="small muted">상대방이 쪽지를 수락하면 1:1 채팅이 열려요.<br>처음 만날 땐 헬스장 등 공개된 장소에서 만나고, 돈이나 개인정보를 요구하면 신고해 주세요.</div>
       </form>`;
     const prefs = prefsLines(u.prefs);
     openModal(`
@@ -581,7 +587,7 @@
         <div>
           <div class="name">${esc(u.nickname)}</div>
           <div class="muted small">${esc(personLine(u))}</div>
-          <div class="small" style="margin-top:4px">📍 ${esc(u.region || '')} ${u.distanceKm != null ? `· ${distLabel(u.distanceKm)}` : ''}</div>
+          <div class="small" style="margin-top:4px">${esc(u.region || '')} ${u.distanceKm != null ? `· ${distLabel(u.distanceKm)}` : ''}</div>
         </div>
       </div>
       <div class="stack">
@@ -599,7 +605,7 @@
         </dl>
         ${u.bio ? `<div class="note-body">${esc(u.bio)}</div>` : ''}
         <div class="pref-box">
-          <div class="small" style="font-weight:700;margin-bottom:6px">🔎 이런 헬스메이트를 찾아요</div>
+          <div class="small" style="font-weight:700;margin-bottom:6px">이런 헬스메이트를 찾아요</div>
           ${prefs.length || u.prefs.note ? `
             ${prefs.length ? `<div class="chips">${prefs.map((p) => `<span class="tag">${esc(p)}</span>`).join('')}</div>` : ''}
             ${u.prefs.note ? `<div class="small" style="margin-top:6px;white-space:pre-wrap">${esc(u.prefs.note)}</div>` : ''}`
@@ -608,8 +614,8 @@
         ${action}
         <button class="btn block" data-close>닫기</button>
         <div class="safety-actions">
-          <button type="button" class="link small muted" id="pReport">🚨 신고하기</button>
-          <button type="button" class="link small muted" id="pBlock">⛔ 차단하기</button>
+          <button type="button" class="link small muted" id="pReport">신고하기</button>
+          <button type="button" class="link small muted" id="pBlock">차단하기</button>
         </div>
       </div>`);
     document.getElementById('pReport').addEventListener('click', () => openReport(u));
@@ -654,8 +660,8 @@
             <div class="note-body">${esc(n.content)}</div>
             ${box === 'inbox' && n.status === 'pending' ? `
               <div class="row"><button class="btn" data-act="decline">거절</button><span class="spacer"></span><button class="btn primary" data-act="accept">수락하고 채팅 시작</button></div>` : ''}
-            ${n.status === 'accepted' && n.roomId ? `<a class="btn block" href="#/chat/${n.roomId}">💬 채팅방으로 이동</a>` : ''}
-          </div>`).join('') : `<div class="empty"><span class="big">✉️</span>${box === 'inbox' ? '받은 쪽지가 없어요.<br>동네 메이트에게 먼저 쪽지를 보내보세요!' : '보낸 쪽지가 없어요.'}</div>`}
+            ${n.status === 'accepted' && n.roomId ? `<a class="btn block" href="#/chat/${n.roomId}">채팅방으로 이동</a>` : ''}
+          </div>`).join('') : `<div class="empty"><span class="big">${ic('mail', 32)}</span>${box === 'inbox' ? '받은 쪽지가 없어요.<br>동네 메이트에게 먼저 쪽지를 보내 보세요.' : '보낸 쪽지가 없어요.'}</div>`}
       </div>`));
     $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { sessionStorageSet('notesBox', b.dataset.box); viewNotes(b.dataset.box); }));
     $app.querySelectorAll('.profile-link').forEach((el) => el.addEventListener('click', () => showProfile(el.dataset.uid).catch((e) => toast(e.message))));
@@ -681,7 +687,7 @@
 
   function openReport(user, roomId = null) {
     openModal(`
-      <h2>🚨 ${esc(user.nickname)}님 신고하기</h2>
+      <h2>${esc(user.nickname)}님 신고하기</h2>
       <form id="reportForm" class="stack">
         <div class="stack report-reasons">
           ${state.config.reportReasons.map((r) => `<label class="row"><input type="radio" name="reason" value="${esc(r)}" required> ${esc(r)}</label>`).join('')}
@@ -731,7 +737,7 @@
           ${avatar(u.photo)}
           <div class="meta"><div class="title">${esc(u.nickname)}</div><div class="sub">${esc(timeLabel(u.blockedAt))} 차단</div></div>
           <button class="btn sm" data-unblock="${u.id}" data-name="${esc(u.nickname)}">차단 해제</button>
-        </div>`).join('') : '<div class="empty"><span class="big">🙂</span>차단한 사용자가 없어요.</div>'}`));
+        </div>`).join('') : '<div class="empty">차단한 사용자가 없어요.</div>'}`));
     $app.querySelectorAll('[data-unblock]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 차단을 해제할까요?`)) return;
       await Backend.unblock(b.dataset.unblock);
@@ -748,7 +754,7 @@
     $app.innerHTML = '';
     $app.append(h(`
       <a class="link small" href="#/me">← 내 정보</a>
-      <h1>🛡️ 신고 관리</h1>
+      <h1>신고 관리</h1>
       <div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="adminList">${tab === 'suspended' ? suspendedHtml(data) : reportsHtml(data, tab)}</div>`));
     $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => viewAdmin(b.dataset.tab)));
@@ -769,7 +775,7 @@
     }));
   }
   function reportsHtml(list, tab) {
-    if (!list.length) return '<div class="empty"><span class="big">✅</span>신고가 없어요.</div>';
+    if (!list.length) return '<div class="empty">신고가 없어요.</div>';
     return list.map((r) => `
       <div class="card stack" style="margin-bottom:10px">
         <div class="row wrap">
@@ -781,7 +787,7 @@
         <div><span class="tag">${esc(r.reason)}</span> <span class="small muted">누적 신고 ${r.target.reportCount}건</span></div>
         ${r.detail ? `<div class="note-body">${esc(r.detail)}</div>` : ''}
         ${r.evidence ? `
-          <details><summary class="small">💬 신고된 대화 (${r.evidence.length}개)</summary>
+          <details><summary class="small">신고된 대화 (${r.evidence.length}개)</summary>
             <div class="evidence">${r.evidence.map((m) => `<div class="${m.from}"><b>${m.from === 'target' ? esc(r.target.nickname) : esc(r.reporter.nickname)}</b> ${esc(m.content)} <span class="muted">${esc(timeLabel(m.at))}</span></div>`).join('')}</div>
           </details>` : ''}
         ${r.target.suspended ? `<div class="small muted">정지 사유: ${esc(r.target.suspended.reason || '')}</div>` : ''}
@@ -793,7 +799,7 @@
       </div>`).join('');
   }
   function suspendedHtml(list) {
-    if (!list.length) return '<div class="empty"><span class="big">🙂</span>정지된 회원이 없어요.</div>';
+    if (!list.length) return '<div class="empty">정지된 회원이 없어요.</div>';
     return list.map((u) => `
       <div class="list-item">
         <div class="meta"><div class="title">${esc(u.nickname)} <span class="small muted">${esc(u.email || '')}</span></div>
@@ -818,7 +824,7 @@
             <div class="row"><span class="sub" style="flex:1">${esc(r.lastMessage || '대화를 시작해 보세요')}</span>
               ${r.unread ? `<b class="badge" style="position:static">${r.unread}</b>` : ''}</div>
           </div>
-        </a>`).join('') : '<div class="empty"><span class="big">💬</span>아직 채팅방이 없어요.<br>쪽지가 수락되면 여기에서 대화할 수 있어요.</div>'}`));
+        </a>`).join('') : `<div class="empty"><span class="big">${ic('message-circle', 32)}</span>아직 채팅방이 없어요.<br>쪽지가 수락되면 여기에서 대화할 수 있어요.</div>`}`));
   }
 
   // ------------------------------------------------------------ views: 1:1 채팅방
@@ -841,7 +847,7 @@
         </div>
         ${safetyDismissed(roomId) ? '' : `
           <div class="safety-banner" id="safetyBanner">
-            <span>🛡️ <b>안전 수칙</b> 첫 만남은 헬스장 등 공개된 장소에서 · 금전 요구·외부 링크 주의 · 불쾌한 대화는 ⋯ 메뉴에서 신고해 주세요</span>
+            ${ic('shield-check', 16)}<span><b>안전 수칙</b> 첫 만남은 헬스장 등 공개된 장소에서 · 금전 요구·외부 링크 주의 · 불쾌한 대화는 ⋯ 메뉴에서 신고해 주세요</span>
             <button type="button" class="link small" id="safetyClose">닫기</button>
           </div>`}
         <div class="chat-msgs" id="msgs"></div>
@@ -856,7 +862,7 @@
     lastDay = null;
     renderedIds.clear();
     data.messages.forEach(appendMessage);
-    if (!data.messages.length) document.getElementById('msgs').innerHTML = '<div class="day-sep">채팅방이 열렸어요. 인사를 건네 보세요 👋</div>';
+    if (!data.messages.length) document.getElementById('msgs').innerHTML = '<div class="day-sep">채팅방이 열렸어요. 인사를 건네 보세요.</div>';
     scrollBottom();
 
     document.getElementById('safetyClose')?.addEventListener('click', () => {
@@ -867,9 +873,9 @@
       openModal(`
         <div class="menu-sheet">
           <div class="small muted" style="text-align:center;margin-bottom:8px">${esc(other.nickname)}</div>
-          <button class="btn block" data-m="profile">👤 프로필 보기</button>
-          <button class="btn block" data-m="report">🚨 신고하기</button>
-          <button class="btn block danger" data-m="block">⛔ 차단하기</button>
+          <button class="btn block" data-m="profile">프로필 보기</button>
+          <button class="btn block" data-m="report">신고하기</button>
+          <button class="btn block danger" data-m="block">차단하기</button>
           <button class="btn block" data-close>취소</button>
         </div>`);
       $modalBody.querySelector('[data-m=profile]').addEventListener('click', () => showProfile(other.id).catch((e) => toast(e.message)));
@@ -936,7 +942,7 @@
           <div class="photo-pick">
             <span id="photoPreview">${avatar(me.photo, 'lg')}</span>
             <div class="stack" style="flex:1">
-              <label class="btn sm" style="width:fit-content">📷 사진 선택<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" hidden></label>
+              <label class="btn sm" style="width:fit-content">${ic('plus', 16)} 사진 선택<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" hidden></label>
               ${me.photo ? '<label class="small muted"><input type="checkbox" name="removePhoto" value="true"> 사진 삭제</label>' : ''}
             </div>
           </div>
@@ -975,7 +981,7 @@
           </div>
           <label class="field"><span>3대 합계 최소</span><div class="suffix">${num('prefMinTotal', p.minTotal, 0, c.max1rm * 3, '무관 (예: 300)')}<i>kg 이상</i></div></label>
           <label class="field"><span>그 밖의 조건</span><input type="text" name="prefNote" value="${esc(p.note)}" maxlength="200" placeholder="예) 주 3회 이상 꾸준히 나오실 분, 스팟 가능하신 분"></label>
-          <div class="small muted">설정한 조건에 맞는 사람에게는 목록에서 '✅ 내 조건에 맞음' 표시가 붙어요.</div>
+          <div class="small muted">설정한 조건에 맞는 사람에게는 목록에서 '내 조건에 맞음' 표시가 붙어요.</div>
         </section>
 
         <label class="row small card"><input type="checkbox" name="isPublic" ${me.isPublic ? 'checked' : ''}> 짐짝 동네 목록에 내 프로필 공개</label>
@@ -983,14 +989,14 @@
       </form>
       <div class="card menu-list" style="margin-top:14px">
         <div class="small muted menu-caption">${esc({ kakao: '카카오 계정으로 로그인됨', google: 'Google 계정으로 로그인됨' }[me.provider] || me.email || '')}</div>
-        ${me.isAdmin ? '<a href="#/admin">🛡️ 신고 관리 (관리자)<b class="badge inline" id="badgeReports"></b></a>' : ''}
-        <a href="#/blocks">⛔ 차단 목록</a>
-        ${me.provider === 'email' ? '<button type="button" id="pwBtn">🔑 비밀번호 변경</button>' : ''}
-        <button type="button" data-export>📥 내 정보 내려받기</button>
-        <a href="#/policy/terms">📄 이용약관</a>
-        <a href="#/policy/privacy">🔒 개인정보처리방침</a>
-        <a href="#/policy/location">📍 위치기반서비스 이용약관</a>
-        ${state.config.service.contactEmail ? `<a href="mailto:${esc(state.config.service.contactEmail)}">✉️ 문의하기</a>` : ''}
+        ${me.isAdmin ? '<a href="#/admin">신고 관리 (관리자)<b class="badge inline" id="badgeReports"></b></a>' : ''}
+        <a href="#/blocks">차단 목록</a>
+        ${me.provider === 'email' ? '<button type="button" id="pwBtn">비밀번호 변경</button>' : ''}
+        <button type="button" data-export>내 정보 내려받기</button>
+        <a href="#/policy/terms">이용약관</a>
+        <a href="#/policy/privacy">개인정보처리방침</a>
+        <a href="#/policy/location">위치기반서비스 이용약관</a>
+        ${state.config.service.contactEmail ? `<a href="mailto:${esc(state.config.service.contactEmail)}">문의하기</a>` : ''}
         <button type="button" id="logoutBtn">로그아웃</button>
         <button type="button" id="deleteBtn" class="danger-text">회원 탈퇴</button>
       </div>`));
@@ -1044,7 +1050,7 @@
 
   function openChangePassword() {
     openModal(`
-      <h2>🔑 비밀번호 변경</h2>
+      <h2>비밀번호 변경</h2>
       <form id="pwForm" class="stack">
         <label class="field"><span>현재 비밀번호</span><input type="password" name="current" required autocomplete="current-password"></label>
         <label class="field"><span>새 비밀번호 (8자 이상)</span><input type="password" name="next" required minlength="8" autocomplete="new-password"></label>
@@ -1068,7 +1074,7 @@
       <div class="stack">
         <div class="banner small" style="display:block">탈퇴하면 프로필, 사진, 동네 인증, 쪽지, 채팅 내용이 <b>즉시 삭제되고 복구할 수 없어요.</b>
           상대방 채팅방에서도 대화가 사라져요.${state.me.suspended ? '<br>이용 정지 상태에서 탈퇴하면 같은 이메일로 다시 가입할 수 없어요.' : ''}</div>
-        <button type="button" class="link small" data-export style="text-align:left">📥 탈퇴 전에 내 정보 내려받기</button>
+        <button type="button" class="link small" data-export style="text-align:left">탈퇴 전에 내 정보 내려받기</button>
         <form id="delForm" class="stack">
           ${email ? '<label class="field"><span>비밀번호 확인</span><input type="password" name="password" required autocomplete="current-password"></label>'
             : "<label class=\"field\"><span>확인을 위해 '탈퇴'를 입력해 주세요</span><input type=\"text\" name=\"confirm\" required></label>"}
