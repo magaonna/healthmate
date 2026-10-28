@@ -1,8 +1,8 @@
 # 🏋️ 짐짝 (GYMJJAK)
 
-우리 동네에서 같이 운동할 헬스메이트를 찾는 지도 기반 웹 서비스입니다.
+우리 동네에서 같이 운동할 헬스메이트를 찾는 동네 기반 웹 서비스입니다.
 
-**흐름:** 카카오 로그인 → GPS 동네 인증 → 헬스 프로필 작성 → 지도/목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
+**흐름:** 카카오 로그인 → GPS 동네 인증 → 헬스 프로필 작성 → 목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
 
 **구조:** 화면(`public/`) + **Supabase** (로그인 · 데이터베이스 · 사진 저장 · 실시간). 별도 서버가 필요 없어서 `public/` 폴더만 정적 호스팅에 올리면 됩니다.
 
@@ -12,7 +12,7 @@ public/
   config.js       ⚙️ 설정 (Supabase 주소·공개키, 카카오맵 키, 운영 정보) ← 이 파일만 고치면 됨
   backend.js      Supabase 연결 (로그인, RPC 호출, 사진 업로드, 실시간)
   app.js          화면 (vanilla JS SPA)
-  map.js          지도 (카카오맵 / OpenStreetMap) + 좌표 → 동네 이름 변환
+  geo.js          좌표 → 동네 이름 변환 (카카오 / OpenStreetMap)
   policies.js     이용약관 · 개인정보처리방침 · 위치기반서비스 이용약관
   style.css
 supabase/
@@ -99,7 +99,7 @@ insert into public.admins (user_id) select id from public.profiles where nicknam
 | 항목 | 설명 |
 | --- | --- |
 | `supabaseUrl` / `supabaseKey` | Supabase **Project URL** 과 **Publishable key** (이미 입력됨). ⚠️ secret / service_role 키는 절대 넣지 마세요 |
-| `kakaoJsKey` | (선택) 카카오맵 JavaScript 키. 넣으면 지도와 동네 이름이 카카오 기준. 비우면 OpenStreetMap |
+| `kakaoJsKey` | (선택) 카카오 JavaScript 키. 넣으면 동네 이름이 카카오 기준. 비우면 OpenStreetMap |
 | `authProviders` | 로그인 버튼: `['kakao']` (현재), `['kakao', 'google']` 등 – Supabase **Authentication → Providers** 에서 켠 것만 |
 | `emailLogin` | `false` 면 이메일 가입/로그인 화면을 숨기고 소셜 로그인만 사용 (현재 false) |
 | `service` | 운영자(상호) · 문의 이메일 · 개인정보 보호책임자 – 약관/개인정보처리방침에 표시. **출시 전 꼭 채우기** |
@@ -107,7 +107,7 @@ insert into public.admins (user_id) select id from public.profiles where nicknam
 DB 쪽 설정은 SQL 로 바꿉니다:
 
 ```sql
-update public.app_settings set allow_manual_location = true;  -- 개발용: GPS 없이 지도 클릭으로 동네 인증 (출시 땐 false)
+update public.app_settings set allow_manual_location = true;  -- 개발용: GPS 없이 위도·경도 입력으로 동네 인증 (출시 땐 false)
 update public.app_settings set terms_version = '2027-01-01';  -- 약관을 바꿨을 때: 기존 회원에게 다음 접속 시 재동의 받기
 update public.app_settings set auto_suspend_reporters = 3;     -- 30일 내 서로 다른 N명 신고 시 자동 정지
 ```
@@ -124,13 +124,15 @@ npm start        # http://localhost:3000 (설치할 패키지 없음)
 - **Vercel**: GitHub 저장소 연결 → 그대로 Deploy (`vercel.json` 이 `public` 폴더를 배포하도록 설정되어 있음)
 - **Netlify**: Publish directory: `public` (또는 public 폴더를 드래그 앤 드롭)
 
-배포 후 할 일: Supabase **URL Configuration** 에 배포 주소 추가, 카카오맵을 쓰면 카카오 개발자 콘솔 **플랫폼 → Web** 에 배포 도메인 추가.
+배포 후 할 일: Supabase **URL Configuration** 에 배포 주소 추가, 카카오 주소 변환을 쓰면 카카오 개발자 콘솔 **플랫폼 → Web** 에 배포 도메인 추가.
 
-## 카카오맵 (선택)
+## 카카오 주소 변환 (선택)
+
+지도는 보여 주지 않고, 동네 인증 때 좌표를 행정동 이름으로 바꾸는 데만 씁니다. 비워두면 OpenStreetMap 으로 변환합니다.
 
 1. [카카오 개발자 콘솔](https://developers.kakao.com/console/app) → 애플리케이션 추가
 2. **플랫폼 → Web** 에 사이트 도메인 등록 (`http://localhost:3000`, 배포 주소)
-3. **카카오맵** 사용 설정 켜기
+3. **카카오맵** 사용 설정 켜기 (주소 변환 기능이 카카오맵 SDK 에 들어 있음)
 4. **JavaScript 키**를 `config.js` 의 `kakaoJsKey` 에 입력 (브라우저용 키라 공개돼도 등록한 도메인에서만 동작)
 
 ## 회원가입이 안 될 때
@@ -149,16 +151,16 @@ npm start        # http://localhost:3000 (설치할 패키지 없음)
 
 - 브라우저는 **공개키**로 Supabase 에 접속하고, 테이블에 직접 쓰는 것은 **모두 막혀 있습니다** (RLS).
 - 프로필 저장 · 쪽지 · 채팅 · 차단 · 신고 같은 모든 동작은 `schema.sql` 의 **함수(RPC)** 로만 가능하며, 함수 안에서 로그인 여부 · 약관 동의 · 정지 여부 · 차단 관계 · 입력값을 검사합니다.
-- 다른 회원의 **정확한 좌표는 조회할 수 없고**, 약 300m 범위로 흐린 위치와 거리만 받습니다.
+- 다른 회원의 **좌표는 조회할 수 없고**, 동네 이름과 1km 단위 거리만 받습니다.
 - 사진은 `avatars` 저장소의 **본인 폴더**에만 올릴 수 있습니다.
 
 ## 기능
 
 - **회원가입/로그인** – Supabase Auth (이메일 인증 · 비밀번호 bcrypt · 로그인 시도 제한). (선택) 카카오·구글 소셜 로그인
-- **동네 인증** – GPS(정확도 1km 이내) → 지도 API 로 동네 이름 변환, 30일 유효
+- **동네 인증** – GPS(정확도 1km 이내) → 주소 변환 API 로 동네 이름 변환, 30일 유효
 - **헬스 프로필** – 사진, 닉네임, 성별, 나이, 헬스 구력, 3대 1RM(합계 자동), 헬스장, 운동 요일·시간대, 자기소개, 공개 여부
 - **원하는 헬스메이트 조건** – 성별, 나이 범위, 3대 합계 최소, 기타 → `✅ 내 조건에 맞음` / `🤝 서로 조건 맞음` / `🏢 같은 헬스장` / `📅 겹치는 요일` 표시
-- **동네 탐색** – 지도 + 목록, 반경 · 성별 · 3대 합계 · 요일 · 조건 필터
+- **동네 탐색** – 목록, 반경 · 성별 · 3대 합계 · 요일 · 조건 필터
 - **쪽지** – 수락 시 1:1 채팅 개설, 중복 방지, 하루 20통 제한
 - **1:1 채팅** – Supabase Realtime 실시간 메시지 · 읽음 표시 · 입력 중 표시 (실시간 연결이 안 되면 4초마다 자동 확인)
 - **신고 · 차단** – 신고 사유 + 채팅 증거 첨부, 차단 시 서로 숨김, 30일 내 3명 신고 시 자동 정지, 관리자 신고 관리 화면

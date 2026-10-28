@@ -14,7 +14,7 @@
 create table if not exists public.app_settings (
   id                     int primary key default 1 check (id = 1),
   terms_version          text not null default '2026-10-26', -- 약관을 바꾸면 날짜를 올림 → 기존 회원 재동의
-  allow_manual_location  boolean not null default false,     -- 개발용: 지도 클릭으로 동네 인증 허용
+  allow_manual_location  boolean not null default false,     -- 개발용: 위도·경도 직접 입력으로 동네 인증 허용
   auto_suspend_reporters int not null default 3,             -- 30일 내 서로 다른 N명에게 신고되면 자동 정지
   verify_valid_days      int not null default 30,            -- 동네 인증 유효기간
   daily_note_limit       int not null default 20
@@ -65,7 +65,7 @@ create table if not exists public.account_status (
   suspended_reason text
 );
 
--- 동네 인증 (정확한 좌표는 본인만 조회 가능, 다른 회원에게는 근사 좌표만)
+-- 동네 인증 (좌표는 본인만 조회 가능, 다른 회원에게는 동네 이름과 1km 단위 거리만)
 create table if not exists public.locations (
   user_id     uuid primary key references auth.users (id) on delete cascade,
   lat         double precision not null,
@@ -233,7 +233,7 @@ language sql stable security definer set search_path = public as $$
   select location_salt from public.app_secrets where id = 1
 $$;
 
--- 다른 회원에게 보여줄 근사 좌표: 약 300m 격자 + 회원별 고정 흔들림(비밀값 섞음)
+-- 거리 계산용 근사 좌표: 약 300m 격자 + 회원별 고정 흔들림(비밀값 섞음). 좌표 자체는 다른 회원에게 보내지 않는다
 create or replace function public._approx(lat float8, lng float8, uid uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
   with k as (select md5(public._location_salt() || ':' || uid::text) as h)
@@ -315,7 +315,7 @@ begin
   return auth.uid();
 end $$;
 
--- 화면에 보여줄 프로필 JSON (vlat/vlng 가 있으면 거리 포함)
+-- 화면에 보여줄 프로필 JSON (vlat/vlng 가 있으면 거리 포함). 다른 회원에게 좌표는 보내지 않는다
 create or replace function public._profile_json(p public.profiles, loc public.locations, vlat float8, vlng float8) returns jsonb
 language sql stable as $$
   select jsonb_build_object(
@@ -330,10 +330,8 @@ language sql stable as $$
                                 'minTotal', p.pref_min_total, 'note', coalesce(p.pref_note, '')),
     'photo', p.photo_path,
     'region', loc.region)
-  || case when loc.user_id is null then '{}'::jsonb
-          else public._approx(loc.lat, loc.lng, p.id)
-               || case when vlat is null then '{}'::jsonb
-                       else jsonb_build_object('distanceKm', public._fuzzy_km(vlat, vlng, loc.lat, loc.lng, p.id)) end
+  || case when loc.user_id is null or vlat is null then '{}'::jsonb
+          else jsonb_build_object('distanceKm', public._fuzzy_km(vlat, vlng, loc.lat, loc.lng, p.id))
      end
 $$;
 

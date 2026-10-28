@@ -3,7 +3,7 @@
   const $app = document.getElementById('app');
   const $modal = document.getElementById('modal');
   const $modalBody = document.getElementById('modalBody');
-  const state = { me: null, config: null, live: false, poller: null, map: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null };
+  const state = { me: null, config: null, live: false, poller: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null };
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,7 +51,6 @@
     $app.classList.toggle('full', full);
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
     document.getElementById('topRegion').textContent = state.me?.location?.region ? state.me.location.region : '';
-    if (state.map) { state.map.destroy(); state.map = null; }
   }
 
   // ------------------------------------------------------------ 실시간 알림 (Supabase Realtime, 연결 안 되면 폴링)
@@ -376,25 +375,24 @@
         ${loc ? `<div>현재 인증된 동네: <b>${esc(loc.region)}</b> <span class="muted small">${esc(loc.district || '')}</span><br>
           <span class="small ${loc.verified ? 'muted' : ''}" style="${loc.verified ? '' : 'color:var(--danger)'}">${loc.verified ? `인증일 ${esc(timeLabel(loc.verifiedAt))} · ${state.config.verifyValidDays}일간 유효` : '인증 기간이 만료되었어요. 다시 인증해 주세요.'}</span></div>` : ''}
         <p class="muted small" style="margin:0">지금 계신 곳의 GPS 위치로 동네를 인증해요. 인증된 동네 반경 안의 헬스메이트만 볼 수 있어요.<br>
-        다른 사람에게는 정확한 위치가 아닌 대략적인 위치(약 300m 범위)와 1km 단위 거리만 보여요.</p>
-        <div id="verifyMap"></div>
+        다른 사람에게는 위치가 보이지 않고, 동네 이름과 1km 단위 거리만 보여요.</p>
         <div id="verifyResult" class="small"></div>
         <button class="btn primary block" id="gpsBtn">${ic('map-pin')} 현재 위치로 동네 인증하기</button>
-        ${manual ? '<button class="btn block" id="manualBtn" disabled>지도에서 선택한 위치로 인증 (개발 모드)</button><div class="small muted">개발 모드: 지도를 클릭해 위치를 선택할 수 있어요.</div>' : ''}
+        ${manual ? `<form id="manualForm" class="stack">
+          <div class="small muted">개발 모드: 위도·경도를 직접 입력해 인증할 수 있어요.</div>
+          <div class="row">
+            <input name="lat" type="number" step="any" required placeholder="위도 (예: 37.5)" value="${state.me.lat ?? ''}">
+            <input name="lng" type="number" step="any" required placeholder="경도 (예: 127.03)" value="${state.me.lng ?? ''}">
+          </div>
+          <button class="btn block" type="submit">입력한 위치로 인증 (개발 모드)</button>
+        </form>` : ''}
       </div>`));
-
-    const start = state.me.lat != null ? [state.me.lat, state.me.lng] : [37.5665, 126.978];
-    await MateMap.load(state.config);
-    if (!document.getElementById('verifyMap')) return; // 지도 로딩 중 다른 화면으로 이동함
-    const map = state.map = MateMap.create(document.getElementById('verifyMap'), { center: start, zoom: state.me.lat != null ? 15 : 12 });
-    if (state.me.lat != null) map.setPin(start);
-    let picked = null;
 
     async function submit(body) {
       const r = document.getElementById('verifyResult');
       r.textContent = '동네를 확인하는 중...';
       try {
-        const geo = await MateMap.reverseGeocode(body.lat, body.lng);
+        const geo = await Geo.reverseGeocode(state.config, body.lat, body.lng);
         const res = await Backend.verifyLocation({ ...body, ...geo });
         await loadMe();
         r.innerHTML = `<b>${esc(res.region)}</b> 인증을 마쳤어요.`;
@@ -409,7 +407,6 @@
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-          map.setPin([lat, lng]); map.setView([lat, lng], 15);
           submit({ lat, lng, accuracy });
         },
         (err) => { document.getElementById('verifyResult').textContent = '위치 정보를 가져올 수 없어요. ' + (err.code === 1 ? '위치 권한을 허용해 주세요.' : err.message); },
@@ -417,13 +414,14 @@
       );
     });
     if (manual) {
-      const mb = document.getElementById('manualBtn');
-      map.onClick((latlng) => { picked = latlng; map.setPin([latlng.lat, latlng.lng]); mb.disabled = false; });
-      mb.addEventListener('click', () => picked && submit({ lat: picked.lat, lng: picked.lng, manual: true }));
+      document.getElementById('manualForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        submit({ lat: Number(e.target.lat.value), lng: Number(e.target.lng.value), manual: true });
+      });
     }
   }
 
-  // ------------------------------------------------------------ views: 홈 (지도 + 목록)
+  // ------------------------------------------------------------ views: 홈 (주변 메이트 목록)
   async function viewHome() {
     setChrome({ tab: 'home', full: true });
     const { days } = state.config;
@@ -452,16 +450,8 @@
             ${days.map((d) => `<span class="chip ${f.days.includes(d) ? 'on' : ''}" data-day="${esc(d)}">${esc(d)}</span>`).join('')}
           </div>
         </div>
-        <div class="home-body">
-          <div id="map"></div>
-          <div class="home-list" id="mateList"><div class="empty">불러오는 중...</div></div>
-        </div>
+        <div class="home-list" id="mateList"><div class="empty">불러오는 중...</div></div>
       </div>`));
-
-    await MateMap.load(state.config);
-    if (!document.getElementById('map')) return; // 지도 로딩 중 다른 화면으로 이동함
-    const me = [state.me.lat, state.me.lng];
-    const map = state.map = MateMap.create(document.getElementById('map'), { center: me, zoom: 14 });
 
     document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(); });
     document.getElementById('genderSel').addEventListener('change', (e) => { f.gender = e.target.value || null; render(); });
@@ -483,8 +473,6 @@
         throw e;
       }
       if (!document.getElementById('mateList')) return;
-      map.setMe(me);
-      map.showRadius(me, state.nearby.radius);
       render();
     }
 
@@ -494,13 +482,6 @@
         && (!f.minTotal || u.total >= f.minTotal)
         && (!f.days.length || f.days.some((d) => u.workoutDays.includes(d)))
         && (!f.matchOnly || u.meetsMyPrefs));
-      map.setMates(users.map((u) => ({
-        lat: u.lat,
-        lng: u.lng,
-        html: u.photo ? `<img src="${esc(u.photo)}" alt="">` : esc((u.nickname || '?').slice(0, 1)),
-        label: u.nickname + (u.total ? ` · 3대 ${u.total}` : ''),
-        onClick: () => showProfile(u.id).catch((e) => toast(e.message)),
-      })));
       const list = document.getElementById('mateList');
       if (!users.length) {
         list.innerHTML = `<div class="empty"><span class="big">${ic('search', 32)}</span>반경 ${state.nearby.radius}km 안에 조건에 맞는 헬스메이트가 아직 없어요.<br>필터를 줄이거나 반경을 넓혀 보세요.</div>`;
