@@ -2,7 +2,7 @@
 
 우리 동네에서 같이 운동할 헬스메이트를 찾는 동네 기반 웹 서비스입니다.
 
-**흐름:** 카카오 로그인 → GPS 동네 인증 → 헬스 프로필 작성 → 목록에서 동네 메이트 탐색 → 쪽지 보내기 → 상대가 수락하면 1:1 실시간 채팅
+**흐름:** 이메일 로그인 (카카오는 일시 중지) → GPS 동네 인증 → 헬스 프로필 작성 → 동네 구인 글 · 메이트 탐색 → 요청(쪽지) → 수락하면 1:1 채팅과 운동 약속 → 체크인 · 후기 → 오늘 운동 인증 · 1RM 영상 인증
 
 **구조:** 화면(`public/`) + **Supabase** (로그인 · 데이터베이스 · 사진 저장 · 실시간). 별도 서버가 필요 없어서 `public/` 폴더만 정적 호스팅에 올리면 됩니다.
 
@@ -16,7 +16,10 @@ public/
   policies.js     이용약관 · 개인정보처리방침 · 위치기반서비스 이용약관
   style.css
 supabase/
-  schema.sql      DB 테이블 · 보안 규칙(RLS) · 함수 · 사진 저장소 · 실시간 설정
+  schema.sql      DB 테이블 · 보안 규칙(RLS) · 함수 · 사진·영상 저장소 · 실시간 설정 (새로 설치할 때)
+  migrations/     이미 운영 중인 DB 에 순서대로 적용할 변경분
+  demo/           시연용 계정 준비 · 정리 SQL
+  email-templates/ 인증 메일 한글 템플릿
 server.js         로컬 미리보기용 정적 서버 (의존성 없음)
 ```
 
@@ -34,11 +37,11 @@ server.js         로컬 미리보기용 정적 서버 (의존성 없음)
    ```sql
    insert into public.admins (user_id) select id from auth.users where email = '관리자@이메일.com';
    ```
-   → 그 계정으로 로그인하면 [내 정보 → 🛡️ 신고 관리] 메뉴가 생깁니다.
+   → 그 계정으로 로그인하면 [내 정보 → 신고 · 영상 인증 관리 (관리자)] 메뉴가 생깁니다. 관리자 본인의 1RM 영상은 다른 관리자가 검토해야 합니다.
 
 ## 카카오 로그인 설정
 
-지금 `config.js` 는 **카카오 로그인만** 쓰도록 되어 있습니다 (`authProviders: ['kakao']`, `emailLogin: false`).
+지금 `config.js` 는 카카오 로그인 오류로 **이메일 로그인만** 켜 두었습니다 (`authProviders: []`, `emailLogin: true`). 카카오를 다시 켜려면 아래 설정 후 `authProviders: ['kakao']` 로 바꾸세요.
 처음 카카오로 로그인하면 자동 가입 → 닉네임 확인 · 약관 동의 → 동네 인증 순서로 진행됩니다.
 
 **① 카카오 개발자 콘솔** ([developers.kakao.com](https://developers.kakao.com/console/app))
@@ -97,15 +100,43 @@ insert into public.admins (user_id) select id from public.profiles where nicknam
 ## 기존 DB 업데이트 (2026-10-28 v2 기능)
 
 이미 운영 중인 Supabase 에는 **SQL Editor** 에서 아래 파일을 순서대로 한 번씩 실행하세요. (여러 번 실행해도 안전합니다)
+**PR 을 열거나 합치기 전에 먼저 실행하세요.** Vercel 미리보기도 운영 Supabase 를 씁니다.
 
 1. `supabase/migrations/20261028_q1_location_privacy.sql` (아직 안 했다면)
 2. `supabase/migrations/20261028_remove_map_coords.sql` (아직 안 했다면)
 3. `supabase/migrations/20261028_wireframe_v2.sql` – 구인 글 · 운동 약속 · 후기 · 1RM 영상 인증 · 오늘 운동 인증
+4. `supabase/migrations/20261028_wireframe_v2_fixes.sql` – 검토 반영 (거리 역추적 방지, 약속 · 노쇼 규칙 보완, 동시 처리 잠금, 도배 제한)
+
+실행 후 앱에서 "함수를 찾을 수 없다"는 오류가 나면 SQL Editor 에서 `notify pgrst, 'reload schema';` 를 한 번 실행하세요.
+제대로 들어갔는지 확인하려면:
+```sql
+select count(*) from pg_proc where pronamespace = 'public'::regnamespace
+  and proname in ('nearby_posts','create_post','checkin_appointment','issue_lift_code','admin_review_lift','log_workout','my_workout','send_cheer'); -- 8 이면 정상
+```
 
 3번은 저장소 버킷 두 개(`workouts` 운동 사진, `lift-videos` 인증 영상)도 만듭니다. 둘 다 비공개라 본인(영상은 관리자도)만 볼 수 있습니다.
 새로 설치하는 경우에는 `schema.sql` 만 실행하면 됩니다.
 
 > 영상은 50MB까지 올릴 수 있게 설정했습니다. Supabase 무료 요금제는 파일 하나당 최대 50MB입니다.
+
+## 시연하기 (혼자서 두 사람 흐름 보여 주기)
+
+1. Supabase → **Authentication → Users → Add user → Create new user** 로 `demo-a@example.com`, `demo-b@example.com` 두 계정을 만듭니다 (비밀번호 지정, **Auto Confirm User** 체크 → 인증 메일 없이 바로 로그인).
+2. SQL Editor 에서 `supabase/demo/demo_seed.sql` 실행 → 두 계정이 같은 동네(역삼1동)로 인증되고 프로필 · 3대 기록이 채워지며, demo-a 가 관리자가 됩니다. (GPS 없이 시연할 수 있고, 다른 회원 설정은 건드리지 않습니다)
+3. 일반 창에서 demo-a, **시크릿 창**(또는 휴대폰)에서 demo-b 로 로그인합니다.
+4. 순서 예시:
+   - A: 동네 → **구인 글 쓰기** (번개, 오늘) → B: 구인 글 목록에서 그 글 → **메이트 요청하기**
+   - A: 쪽지 → **수락하고 채팅 시작** → 채팅방 위에 운동 약속 카드가 생김
+   - 약속이 1시간 넘게 남았으면 B 가 확정하기 **전에** A 가 **시간 바꾸기**로 약 10분 뒤로 제안 (체크인은 약속 1시간 전부터 열리고, 확정된 약속은 2시간 전부터 바꿀 수 없음)
+   - B: **약속 확정**
+   - 둘 다 **헬스장 도착 체크인** → **운동 끝 · 후기 남기기** → 프로필의 함께한 운동 · 후기 태그가 올라감
+   - B: 인증 → **1RM 영상 인증** → 코드 받기 → 짧은 영상 올리기 → A: 내 정보 → **신고 · 영상 인증 관리 → 영상 인증** → 통과 → B 프로필에 "영상 인증"
+   - B: 인증 → 사진으로 **오늘 인증** → A: 인증 탭에서 B 에게 **응원하기**
+   - 오른쪽 위 **종 아이콘**에서 요청 · 수락 · 인증 결과 알림을 모아 볼 수 있습니다.
+5. 끝나면 `supabase/demo/demo_cleanup.sql` 실행 후, 각 계정으로 [내 정보 → 회원 탈퇴] (사진 · 영상 파일까지 지워짐).
+
+> Vercel **미리보기 주소**(PR 마다 생기는 `healthmate-git-…vercel.app`)는 기본으로 Vercel 로그인을 요구할 수 있습니다. 다른 사람에게 보여 줄 땐 정식 주소를 쓰거나, Vercel → Settings → Deployment Protection 에서 미리보기 보호를 끄세요.
+> 사진은 5MB, 영상은 50MB 이하만 올라갑니다. 아이폰은 [설정 → 카메라 → 포맷 → 높은 호환성]으로 찍은 영상이 관리자 PC 에서도 잘 재생됩니다.
 
 ## 2. 설정 (`public/config.js`)
 
@@ -113,8 +144,8 @@ insert into public.admins (user_id) select id from public.profiles where nicknam
 | --- | --- |
 | `supabaseUrl` / `supabaseKey` | Supabase **Project URL** 과 **Publishable key** (이미 입력됨). ⚠️ secret / service_role 키는 절대 넣지 마세요 |
 | `kakaoJsKey` | (선택) 카카오 JavaScript 키. 넣으면 동네 이름이 카카오 기준. 비우면 OpenStreetMap |
-| `authProviders` | 로그인 버튼: `['kakao']` (현재), `['kakao', 'google']` 등 – Supabase **Authentication → Providers** 에서 켠 것만 |
-| `emailLogin` | `false` 면 이메일 가입/로그인 화면을 숨기고 소셜 로그인만 사용 (현재 false) |
+| `authProviders` | 로그인 버튼: `[]` (현재, 소셜 로그인 없음), `['kakao']`, `['kakao', 'google']` 등 – Supabase **Authentication → Providers** 에서 켠 것만 |
+| `emailLogin` | `false` 면 이메일 가입/로그인 화면을 숨기고 소셜 로그인만 사용 (현재 true) |
 | `service` | 운영자(상호) · 문의 이메일 · 개인정보 보호책임자 – 약관/개인정보처리방침에 표시. **출시 전 꼭 채우기** |
 
 DB 쪽 설정은 SQL 로 바꿉니다:

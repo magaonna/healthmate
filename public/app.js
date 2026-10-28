@@ -9,7 +9,7 @@
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // Lucide 선형 아이콘 (ISC 라이선스). 이모지 대신 이것만 쓴다 — 디자인 시스템 5장
-  const ICONS = {"map-pin": "<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\" /> <circle cx=\"12\" cy=\"10\" r=\"3\" />", "mail": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7\" />", "message-circle": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\" />", "user": "<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\" /> <circle cx=\"12\" cy=\"7\" r=\"4\" />", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\" /> <path d=\"M7 11V7a5 5 0 0 1 10 0v4\" />", "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\" /> <path d=\"m9 12 2 2 4-4\" />", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <path d=\"m21 21-4.3-4.3\" />", "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />", "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />", "bell": "<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9\" /> <path d=\"M10.3 21a1.94 1.94 0 0 0 3.4 0\" />", "check": "<path d=\"M20 6 9 17l-5-5\" />", "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"m9 12 2 2 4-4\" />", "circle-alert": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\" /> <line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\" />", "camera": "<path d=\"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z\" /> <circle cx=\"12\" cy=\"13\" r=\"3\" />", "video": "<path d=\"m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5\" /> <rect x=\"2\" y=\"6\" width=\"14\" height=\"12\" rx=\"2\" />", "calendar": "<path d=\"M8 2v4\" /> <path d=\"M16 2v4\" /> <rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\" /> <path d=\"M3 10h18\" />"};
+  const ICONS = {"map-pin": "<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\" /> <circle cx=\"12\" cy=\"10\" r=\"3\" />", "mail": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7\" />", "message-circle": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\" />", "user": "<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\" /> <circle cx=\"12\" cy=\"7\" r=\"4\" />", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\" /> <path d=\"M7 11V7a5 5 0 0 1 10 0v4\" />", "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\" /> <path d=\"m9 12 2 2 4-4\" />", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <path d=\"m21 21-4.3-4.3\" />", "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />", "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />", "bell": "<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9\" /> <path d=\"M10.3 21a1.94 1.94 0 0 0 3.4 0\" />", "check": "<path d=\"M20 6 9 17l-5-5\" />", "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"m9 12 2 2 4-4\" />", "circle-alert": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\" /> <line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\" />", "camera": "<path d=\"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z\" /> <circle cx=\"12\" cy=\"13\" r=\"3\" />", "video": "<path d=\"m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5\" /> <rect x=\"2\" y=\"6\" width=\"14\" height=\"12\" rx=\"2\" />", "arrow-left": "<path d=\"m12 19-7-7 7-7\" /> <path d=\"M19 12H5\" />", "ellipsis-vertical": "<circle cx=\"12\" cy=\"12\" r=\"1\" /> <circle cx=\"12\" cy=\"5\" r=\"1\" /> <circle cx=\"12\" cy=\"19\" r=\"1\" />", "chevron-left": "<path d=\"m15 18-6-6 6-6\" />", "calendar": "<path d=\"M8 2v4\" /> <path d=\"M16 2v4\" /> <rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\" /> <path d=\"M3 10h18\" />"};
   const ic = (name, size = 20) => `<svg class="i" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; };
 
@@ -47,7 +47,7 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
   function setChrome({ tab = null, bars = true, full = false } = {}) {
-    document.getElementById('topbar').classList.toggle('hidden', !bars);
+    document.getElementById('topbar').classList.toggle('hidden', !bars || tab === 'chat');
     document.getElementById('tabbar').classList.toggle('hidden', !bars || tab === 'chat');
     $app.classList.toggle('full', full);
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
@@ -89,7 +89,8 @@
         const data = await Backend.room(state.chatRoomId);
         const fresh = data.messages.filter((m) => !renderedIds.has(m.id));
         fresh.forEach(appendMessage);
-        if (fresh.some((m) => m.kind === 'system')) renderAppt(data.room.appointment);
+        if (JSON.stringify(data.room.appointment) !== JSON.stringify(state.chatRoom?.appointment)) renderAppt(data.room.appointment);
+        state.chatRoom = data.room;
         const mineMsgs = data.messages.filter((m) => m.senderId === state.me.id && m.kind !== 'system');
         if (mineMsgs.length && mineMsgs.every((m) => m.readAt)) markAllRead();
       } catch {}
@@ -109,6 +110,7 @@
       const b = await Backend.badges();
       document.getElementById('badgeNotes').textContent = b.notes || '';
       document.getElementById('badgeChats').textContent = b.chats || '';
+      document.getElementById('badgeNoti').textContent = b.notes || '';
     } catch {}
   }
 
@@ -142,6 +144,7 @@
   async function route() {
     const hash = location.hash || '#/';
     closeModal();
+    if (state.chatRoomId) Backend.leaveTyping(state.chatRoomId);
     state.chatRoomId = null;
     const match = routes.find(([re]) => re.test(hash)) || routes[routes.length - 1];
     const [re, fn, opts = {}] = match;
@@ -302,7 +305,7 @@
     $app.innerHTML = '';
     $app.append(h(`
       <div class="${loggedIn ? '' : 'auth-wrap policy-page'}"><div class="card policy">
-        <a class="link small" href="javascript:history.back()">← 뒤로</a>
+        <a class="back-link small" href="javascript:history.back()">${ic('chevron-left', 16)}뒤로</a>
         ${Policies.docs[doc].render(state.config.service)}
       </div></div>`));
     window.scrollTo(0, 0);
@@ -317,7 +320,7 @@
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
           <div class="logo">${ic('user', 32)}</div>
-          <h1>${isNew ? '짐짝에 오신 걸 환영해요!' : '약관이 변경되었어요'}</h1>
+          <h1>${isNew ? '짐짝에 오신 걸 환영해요' : '약관이 변경되었어요'}</h1>
           <div class="muted">${isNew ? '닉네임을 정하고 약관에 동의해 주세요' : '계속 이용하려면 변경된 약관에 동의해 주세요'}</div>
         </div>
         <form class="card stack" id="welcomeForm">
@@ -440,12 +443,14 @@
     const f = state.filter;
     const pf = state.postFilter;
     const tab = sessionStorageGet('homeTab') || 'posts';
+    const gen = (state.homeGen = (state.homeGen || 0) + 1); // 탭 · 반경을 바꾸면 늦게 도착한 이전 응답은 버린다
     const liftChip = (l) => `<span class="chip ${pf.lifts.includes(l) ? 'on' : ''}" data-lift="${l}">${LIFT[l]}</span>`;
     const flagChip = (k, label) => `<span class="chip ${pf[k] ? 'on' : ''}" data-flag="${k}">${label}</span>`;
     $app.innerHTML = '';
     $app.append(h(`
       <div class="home">
         <div class="home-controls stack">
+          <h1 class="home-title">오늘 같이 운동할 메이트</h1>
           ${!state.me.profileComplete ? '<a href="#/me" class="banner">성별·나이·구력·운동 요일을 채우면 메이트들이 나를 알아볼 수 있어요. <b class="link">작성하기</b></a>' : ''}
           <div class="tabs" id="homeTabs"><button data-t="posts" class="${tab === 'posts' ? 'on' : ''}">구인 글</button><button data-t="mates" class="${tab === 'mates' ? 'on' : ''}">메이트</button></div>
           <div class="row">
@@ -480,7 +485,8 @@
       const b = e.target.closest('button'); if (!b || b.dataset.t === tab) return;
       sessionStorageSet('homeTab', b.dataset.t); viewHome().catch((err) => toast(err.message));
     });
-    document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(); });
+    let loadSeq = 0;
+    document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(++loadSeq); });
     if (tab === 'posts') {
       document.getElementById('postChips').addEventListener('click', (e) => {
         const c = e.target.closest('.chip'); if (!c) return;
@@ -501,18 +507,18 @@
       });
     }
 
-    async function load() {
+    async function load(seq = loadSeq) {
+      let data;
       try {
-        if (tab === 'posts') state.posts = await Backend.nearbyPosts(f.radius);
-        else {
-          state.nearby = await Backend.nearby(f.radius);
-          state.nearby.users.forEach((u) => decorate(u));
-        }
+        data = tab === 'posts' ? await Backend.nearbyPosts(f.radius) : await Backend.nearby(f.radius);
       } catch (e) {
         if (handleCodeError(e)) return;
         throw e;
       }
-      if (!document.getElementById('mateList')) return;
+      if (seq !== loadSeq) return;
+      if (tab === 'posts') state.posts = data;
+      else { state.nearby = data; data.users.forEach((u) => decorate(u)); }
+      if (gen !== state.homeGen || !document.getElementById('mateList')) return;
       if (tab === 'posts') renderPosts(); else render();
     }
 
@@ -530,7 +536,7 @@
           <div style="margin-top:16px"><a class="btn sm" href="#/posts/new">구인 글 쓰기</a></div></div>`;
         return;
       }
-      list.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(state.posts.region)} 근처 구인 글 <b>${posts.length}</b>개</div>`
+      list.innerHTML = `<div class="small muted list-caption"><span>${esc(state.posts.region)} 근처 구인 글 <b>${posts.length}</b>개</span><span>가까운 순</span></div>`
         + posts.map((p) => postRow(p)).join('');
       list.querySelectorAll('.post-row').forEach((el) => el.addEventListener('click', () => {
         const p = posts.find((x) => String(x.id) === el.dataset.id);
@@ -617,6 +623,7 @@
   const PART = { bench: '가슴', squat: '하체', deadlift: '등', etc: '자유' };
   const DOW = ['일', '월', '화', '수', '목', '금', '토'];
   const LIFTS3 = ['bench', 'squat', 'deadlift'];
+  const plate = (kg) => Math.round(kg / 5) * 5; // 기본 작업 중량: 5kg 단위 (서버는 정수 kg 만 받음)
   const epley = (w, r) => (r <= 1 ? Number(w) : Math.round(w * (1 + r / 30) * 2) / 2); // 추정 1RM, 0.5kg 단위
   // 날짜 · 시간은 모두 한국 시간 기준
   const kstDate = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
@@ -637,6 +644,8 @@
     if (p.kind === 'fixed') return `${p.days.join('·')} ${timeWord(p.time)} ${PART[p.lift]} 고정 메이트 구해요`;
     return `${LIFT[p.lift]} ${p.workKg}kg 스팟 구해요`;
   }
+  const normGym = (g) => (g || '').replace(/\s/g, '');
+  const sameGym = (g) => !!(g && state.me.gymName && normGym(g) === normGym(state.me.gymName));
   const condText = (p) => (p.lift === 'etc' || !p.min1rm ? '조건 없음' : `${LIFT[p.lift]} ${p.min1rm}kg 이상${p.requireVerified ? '(영상 인증)' : ''}`);
   const liftVerified = (u, l) => u.verified?.[l] != null && u.verified[l] >= (u[l] ?? 0);
   const liftStatus = (u, l) => (u[l] == null ? '미입력' : liftVerified(u, l) ? '영상 인증' : '자기 신고');
@@ -664,8 +673,8 @@
           <div class="row"><span class="name">${esc(p.author.nickname)}</span>${p.author.verified ? '<span class="tag">1RM 인증</span>' : ''}
             <span class="spacer"></span><span class="small muted nowrap">${p.mine ? '내 글' : distLabel(p.author.distanceKm)}</span></div>
           <div class="post-title">${esc(postTitle(p))}</div>
-          <div class="small muted">${esc([postWhen(p), PART[p.lift], condText(p), p.kind === 'fixed' ? '고정' : '번개', p.sameGender ? '동성만' : ''].filter(Boolean).join(' · '))}</div>
-          ${p.memo ? `<div class="small muted ellipsis">${esc(p.memo)}</div>` : ''}
+          <div class="small muted post-meta">${esc([postWhen(p), PART[p.lift], condText(p), p.kind === 'fixed' ? '고정' : '번개', p.sameGender ? '동성만' : ''].filter(Boolean).join(' · '))}</div>
+          <div class="small muted ellipsis">${esc(sameGym(p.gymName) && !p.mine ? `${p.gymName} · 같은 헬스장` : p.gymName)}${p.memo ? ` · ${esc(p.memo)}` : ''}</div>
           <div class="elig ${e.ok || p.mine ? 'ok' : ''}">${ic(e.ok || p.mine ? 'circle-check' : 'circle-alert', 16)}<span>${esc(p.mine ? `내 글 · 요청 ${p.applicants}명` : e.text)}</span>
             ${!p.mine && p.requested ? '<span class="muted">· 요청 보냄</span>' : ''}${!p.mine && p.applicants ? `<span class="muted">· 요청 ${p.applicants}명</span>` : ''}</div>
         </div>
@@ -677,15 +686,19 @@
     const posts = u.posts || [];
     let pick = posts.some((p) => p.id === postId) ? postId : (posts.find((p) => p.eligibility === 'ok') || posts[0])?.id ?? null;
     const defaultMsg = (p) => (p
-      ? `안녕하세요! ${postWhen(p)} ${p.lift === 'etc' ? '같이 운동하고 싶어요.' : `${LIFT_FULL[p.lift]} 같이 하고 싶어요.${state.me[p.lift] != null ? ` 제 ${LIFT[p.lift]} 1RM은 ${state.me[p.lift]}kg이에요.` : ''}`}`
-      : `안녕하세요! ${u.workoutDays.length ? `저도 ${u.workoutDays.join('·')}에 운동해요. ` : ''}같이 운동하실래요?`);
-    let action;
-    if (u.roomId) action = `<a class="btn primary block" href="#/chat/${u.roomId}">채팅방으로 이동</a>`;
-    else if (u.pendingNote) action = `<button class="btn block" disabled>요청을 보냈어요 · 답장을 기다리는 중</button>`;
-    else action = `
+      ? `안녕하세요. ${postWhen(p)} ${p.lift === 'etc' ? '같이 운동하고 싶어요.' : `${LIFT_FULL[p.lift]} 같이 하고 싶어요.${state.me[p.lift] != null ? ` 제 ${LIFT[p.lift]} 1RM은 ${state.me[p.lift]}kg이에요.` : ''}`}`
+      : `안녕하세요. ${u.workoutDays.length ? `저도 ${u.workoutDays.join('·')}에 운동해요. ` : ''}같이 운동하실래요?`);
+    // 요청 버튼은 와이어프레임처럼 시트 아래에 고정 (폼은 본문에 두고 form 속성으로 연결)
+    let action = '';
+    let cta;
+    if (u.roomId) cta = `<a class="btn primary block" href="#/chat/${u.roomId}">채팅방으로 이동</a>`;
+    else if (u.pendingNote) cta = `<button class="btn block" disabled>요청을 보냈어요 · 답장을 기다리는 중</button>`;
+    else {
+      cta = '<button class="btn primary block" type="submit" form="noteForm">메이트 요청하기</button>';
+      action = `
       ${u.iMeetTheirPrefs === false ? '<div class="banner small">상대가 원하는 메이트 조건과 맞지 않아요. 그래도 쪽지는 보낼 수 있어요.</div>' : ''}
       <form id="noteForm" class="stack">
-        ${posts.length ? `<div class="field"><span class="field-label">어떤 운동으로 만날까요?</span>
+        ${posts.length ? `<div class="field"><span class="field-label">이 사람의 구인 글 <span class="muted" style="font-weight:400">· 어떤 운동으로 만날지 골라 주세요</span></span>
           <div class="stack report-reasons" id="postPick">
             ${posts.map((p) => `<label class="row"><input type="radio" name="post" value="${p.id}" ${p.id === pick ? 'checked' : ''}>
               <span style="flex:1;min-width:0"><b>${esc(postTitle(p))}</b><br><span class="small muted">${esc(postWhen(p))} · ${esc(condText(p))}</span></span></label>`).join('')}
@@ -694,12 +707,13 @@
         <div id="eligBox"></div>
         <label class="field"><span>${posts.length ? '첫 메시지' : '쪽지 보내기'}</span>
           <textarea name="content" maxlength="300" required></textarea></label>
-        <button class="btn primary block" type="submit">요청 보내기</button>
-        <div class="small muted">상대방이 수락하면 1:1 채팅이 열려요. 구인 글로 요청하면 운동 약속도 함께 만들어져요.<br>처음 만날 땐 헬스장 안에서 만나고, 돈이나 개인정보를 요구하면 신고해 주세요.</div>
+        <div class="small muted">상대방이 수락하면 1:1 채팅이 열려요. 구인 글로 요청하면 운동 약속도 함께 만들어져요.</div>
       </form>`;
+    }
     const prefs = prefsLines(u.prefs);
     const t = u.trust || { together: 0, noshow: 0, lateCancel: 0, tags: [], reviews: [] };
     openModal(`
+      <button type="button" class="icon-btn sheet-close" data-close aria-label="닫기">${ic('x', 24)}</button>
       <div class="profile-head">
         ${avatar(u.photo, 'lg')}
         <div>
@@ -733,19 +747,21 @@
             ${u.prefs.note ? `<div class="small" style="margin-top:6px;white-space:pre-wrap">${esc(u.prefs.note)}</div>` : ''}`
           : '<div class="small muted">특별한 조건 없음 · 누구나 환영</div>'}
         </div>
-        <div class="safety-note small muted">${ic('shield-check', 16)}<span>첫 만남은 헬스장 안에서 해요</span></div>
         ${action}
-        <button class="btn block" data-close>닫기</button>
         <div class="safety-actions">
           <button type="button" class="link small muted" id="pReport">신고하기</button>
           <button type="button" class="link small muted" id="pBlock">차단하기</button>
         </div>
+      </div>
+      <div class="sheet-footer">
+        <div class="safety-note small muted">${ic('shield-check', 16)}<span>첫 만남은 헬스장 안에서 해요</span></div>
+        ${cta}
       </div>`);
     document.getElementById('pReport').addEventListener('click', () => openReport(u));
     document.getElementById('pBlock').addEventListener('click', () => blockUser(u));
     const form = document.getElementById('noteForm');
     if (!form) return;
-    const btn = form.querySelector('button[type=submit]');
+    const btn = document.querySelector('button[form=noteForm]');
     // 고른 글에 따라 요청 가능 여부와 기본 메시지를 바꾼다 (메시지를 직접 고쳤으면 그대로 둔다)
     let lastDefault = '';
     const sync = () => {
@@ -762,7 +778,7 @@
       btn.disabled = true;
       try {
         await Backend.sendNote(u.id, form.content.value, pick);
-        toast('요청을 보냈어요. 상대방이 수락하면 알려드릴게요');
+        toast('요청을 보냈어요. 상대방이 수락하면 알려드릴게요.');
         closeModal();
         if (location.hash === '#/' || location.hash === '') route();
       } catch (err) {
@@ -771,6 +787,28 @@
       }
     });
   }
+
+  // ------------------------------------------------------------ 알림 (받은 요청 · 수락 · 영상 인증 결과를 한곳에)
+  async function openNotifications() {
+    const [inbox, sent, lifts] = await Promise.all([Backend.notes('inbox'), Backend.notes('sent'), Backend.myLifts()]);
+    refreshBadges();
+    const items = [
+      ...inbox.filter((n) => n.status === 'pending').map((n) => ({ at: n.createdAt, href: '#/notes',
+        text: `${n.other.nickname}님이 ${n.post ? `"${postTitle(n.post)}" 글에` : ''} 메이트 요청을 보냈어요` })),
+      ...sent.filter((n) => n.status === 'accepted' && n.roomId).map((n) => ({ at: n.createdAt, href: `#/chat/${n.roomId}`,
+        text: `${n.other.nickname}님이 요청을 수락했어요. 채팅에서 약속을 확인해 보세요` })),
+      ...sent.filter((n) => n.status === 'declined').map((n) => ({ at: n.createdAt, href: '#/notes',
+        text: `${n.other.nickname}님의 ${n.post ? '구인 글이' : '메이트 모집이'} 마감됐어요` })),
+      ...Object.values(lifts).filter((v) => v.status !== 'code').map((v) => ({ at: v.reviewedAt || v.submittedAt, href: `#/lifts/${v.lift}`,
+        text: `${LIFT_FULL[v.lift]} ${v.weightKg}kg 영상 ${{ pending: '을 검토하고 있어요', approved: ' 인증이 통과됐어요', rejected: ' 인증이 반려됐어요' }[v.status]}` })),
+    ].sort((x, y) => new Date(y.at) - new Date(x.at)).slice(0, 20);
+    openModal(`
+      <button type="button" class="icon-btn sheet-close" data-close aria-label="닫기">${ic('x', 24)}</button>
+      <h2>알림</h2>
+      ${items.length ? items.map((it) => `<a class="list-item noti-item" href="${it.href}"><div class="meta"><div>${esc(it.text)}</div><div class="sub">${esc(timeLabel(it.at))}</div></div></a>`).join('')
+        : `<div class="empty"><span class="big">${ic('bell', 32)}</span>새 알림이 없어요.</div>`}`);
+  }
+  document.getElementById('notiBtn').addEventListener('click', () => { if (state.me) openNotifications().catch((e) => toast(e.message)); });
 
   // ------------------------------------------------------------ views: 쪽지함
   async function viewNotes(box = sessionStorageGet('notesBox') || 'inbox') {
@@ -806,18 +844,20 @@
     $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { sessionStorageSet('notesBox', b.dataset.box); viewNotes(b.dataset.box); }));
     $app.querySelectorAll('.profile-link').forEach((el) => el.addEventListener('click', () => showProfile(el.dataset.uid).catch((e) => toast(e.message))));
     $app.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
+      if (b.disabled) return;
       const id = Number(b.closest('[data-id]').dataset.id);
+      if (b.dataset.act === 'decline' && !confirm('이 요청을 거절할까요?\n상대에게는 \'마감됨\'으로 보여요.')) return;
+      b.disabled = true;
       try {
         if (b.dataset.act === 'accept') {
           const roomId = await Backend.acceptNote(id);
           location.hash = `#/chat/${roomId}`;
         } else {
-          if (!confirm('이 요청을 거절할까요?\n상대에게는 \'마감됨\'으로 보여요.')) return;
           await Backend.declineNote(id);
           toast('거절했어요');
           viewNotes(box);
         }
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(e.message); b.disabled = false; }
     }));
   }
   function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
@@ -871,7 +911,7 @@
     const list = await Backend.blocks();
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/me">← 내 정보</a>
+      <a class="back-link small" href="#/me">${ic('chevron-left', 16)}내 정보</a>
       <h1>차단 목록</h1>
       ${list.length ? list.map((u) => `
         <div class="list-item">
@@ -881,7 +921,7 @@
         </div>`).join('') : '<div class="empty">차단한 사용자가 없어요.</div>'}`));
     $app.querySelectorAll('[data-unblock]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 차단을 해제할까요?`)) return;
-      await Backend.unblock(b.dataset.unblock);
+      try { await Backend.unblock(b.dataset.unblock); } catch (e) { toast(e.message); return; }
       toast('차단을 해제했어요'); viewBlocks();
     }));
   }
@@ -894,7 +934,7 @@
     const data = tab === 'suspended' ? await Backend.adminSuspended() : tab === 'lifts' ? await Backend.adminLifts('pending') : await Backend.adminReports(tab);
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/me">← 내 정보</a>
+      <a class="back-link small" href="#/me">${ic('chevron-left', 16)}내 정보</a>
       <h1>신고 관리</h1>
       <div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="adminList">${tab === 'suspended' ? suspendedHtml(data) : tab === 'lifts' ? liftsHtml(data) : reportsHtml(data, tab)}</div>`));
@@ -907,12 +947,12 @@
         reason = prompt('정지 사유 (회원에게 표시돼요)', `운영정책 위반 (${b.dataset.reason})`);
         if (reason === null) return;
       } else if (!confirm('이 신고를 기각할까요?')) return;
-      await Backend.adminResolve(Number(b.dataset.id), action, reason);
+      try { await Backend.adminResolve(Number(b.dataset.id), action, reason); } catch (e) { toast(e.message); return; }
       toast(action === 'suspend' ? '이용 정지했어요' : '기각했어요'); viewAdmin(tab);
     }));
     $app.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 정지를 해제할까요?`)) return;
-      await Backend.adminUnsuspend(b.dataset.unsuspend);
+      try { await Backend.adminUnsuspend(b.dataset.unsuspend); } catch (e) { toast(e.message); return; }
       toast('정지를 해제했어요'); viewAdmin(tab);
     }));
   }
@@ -1010,22 +1050,23 @@
     $app.append(h(`
       <div class="chat">
         <div class="chat-head">
-          <a href="#/chats" class="btn sm" aria-label="뒤로">←</a>
+          <a href="#/chats" class="icon-btn" aria-label="채팅 목록으로">${ic('arrow-left', 24)}</a>
           ${avatar(other.photo)}
-          <div style="flex:1;min-width:0"><b>${esc(other.nickname)}</b><div class="small muted">${esc(other.region || '')}</div></div>
-          <button class="btn sm" id="chatMenu" aria-label="메뉴">⋯</button>
+          <div style="flex:1;min-width:0"><b>${esc(other.nickname)}</b>
+            <div class="small muted ellipsis">${other.total != null ? `3대 ${other.total}kg · 벤치 ${other.bench} · 스쿼트 ${other.squat} · 데드 ${other.deadlift}` : esc(other.region || '')}</div></div>
+          <button class="icon-btn" id="chatMenu" aria-label="신고 · 차단 메뉴">${ic('ellipsis-vertical', 24)}</button>
         </div>
         <div id="apptBox"></div>
         ${safetyDismissed(roomId) ? '' : `
           <div class="safety-banner" id="safetyBanner">
-            ${ic('shield-check', 16)}<span><b>안전 수칙</b> 첫 만남은 헬스장 등 공개된 장소에서 · 금전 요구·외부 링크 주의 · 불쾌한 대화는 ⋯ 메뉴에서 신고해 주세요</span>
+            ${ic('shield-check', 16)}<span>첫 만남은 헬스장 안에서 해요. 돈을 요구하거나 운동과 관계없는 연락은 오른쪽 위 메뉴에서 신고할 수 있어요.</span>
             <button type="button" class="link small" id="safetyClose">닫기</button>
           </div>`}
         <div class="chat-msgs" id="msgs"></div>
         <div class="typing" id="typing"></div>
         ${data.room.canSend ? `
         <form class="chat-input" id="chatForm">
-          <textarea name="content" placeholder="메시지를 입력하세요" maxlength="1000" rows="1"></textarea>
+          <textarea name="content" placeholder="메시지 보내기" maxlength="1000" rows="1"></textarea>
           <button class="btn primary" type="submit">전송</button>
         </form>` : '<div class="chat-input cannot-send small muted">메시지를 보낼 수 없는 상대예요.</div>'}
       </div>`));
@@ -1142,7 +1183,7 @@
         <div class="row appt-btns">
           ${a.canCheckin ? '<button class="btn primary" data-a="checkin">헬스장 도착 체크인</button>' : ''}
           ${a.canReview ? '<button class="btn primary" data-a="review">운동 끝 · 후기 남기기</button>' : ''}
-          ${!(a.myCheckin && a.otherCheckin) ? '<button class="btn" data-a="cancel">약속 취소</button>' : ''}
+          ${!(a.myCheckin && a.otherCheckin) && new Date(a.meetAt) > Date.now() ? '<button class="btn" data-a="cancel">약속 취소</button>' : ''}
         </div>`;
     } else {
       body = `<div class="row appt-btns"><button class="btn primary" data-a="review">후기 남기기</button></div>`;
@@ -1205,6 +1246,13 @@
     });
   }
   const TIMES = [...Array(36)].map((_, i) => `${String(6 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`); // 06:00~23:30
+  // 오늘 고를 수 있는 가장 이른 시간 칸 (지금 + 30분 이후). 없으면 null → 내일로
+  function firstSlotToday() {
+    const now = new Date(Date.now() + 30 * 60e3);
+    if (kstDate(now) !== kstDate(new Date())) return null;
+    const hm = now.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+    return TIMES.find((t) => t >= hm) || null;
+  }
   const roundTime = (hm) => { const [hh, mm] = hm.split(':').map(Number); const t = `${String(hh).padStart(2, '0')}:${mm < 30 ? '00' : '30'}`; return TIMES.includes(t) ? t : '19:00'; };
 
   function openReview(a) {
@@ -1219,7 +1267,7 @@
         <div class="chips" id="rvTags"></div>
         <label class="field" id="rvTextWrap" hidden><span>한 줄 후기 (선택)</span><input type="text" id="rvText" maxlength="200" placeholder="예) 스팟이 정확해서 믿고 칠 수 있었어요"></label>
         <button class="btn primary block" id="rvSubmit" disabled>후기 남기기</button>
-        ${!a.otherCheckin ? '<button type="button" class="link small muted" id="rvNoshow" style="align-self:center">상대가 오지 않았어요 (노쇼 신고)</button>' : ''}
+        ${a.canNoshow ? '<button type="button" class="link small muted" id="rvNoshow" style="align-self:center">상대가 오지 않았어요 (노쇼 신고)</button>' : ''}
         <button class="btn block" type="button" data-close>나중에 하기</button>
       </div>`);
     const tagBox = document.getElementById('rvTags');
@@ -1253,16 +1301,20 @@
     const me = state.me;
     const d = { lift: 'bench', kind: 'flash', days: [] };
     const dates = [...Array(14)].map((_, i) => kstDate(new Date(Date.now() + i * 864e5)));
+    // 기본값: 오늘 19:00 (지났으면 오늘 남은 가장 이른 시간, 오늘이 다 지났으면 내일 19:00)
+    const slot = firstSlotToday();
+    const defDate = slot ? dates[0] : dates[1];
+    const defTime = !slot || slot <= '19:00' ? '19:00' : slot;
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/">← 동네</a>
+      <a class="back-link small" href="#/">${ic('chevron-left', 16)}동네</a>
       <h1>구인 글 쓰기</h1>
       <form class="stack" id="postForm" novalidate>
         <div class="field"><span class="field-label">종목</span>
           <div class="chips" id="liftChips">${['bench', 'squat', 'deadlift', 'etc'].map((l) => `<span class="chip ${l === d.lift ? 'on' : ''}" data-v="${l}">${LIFT_FULL[l]}</span>`).join('')}</div></div>
         <div class="grid2" id="weightRow">
-          <label class="field"><span>내 작업 중량</span><div class="suffix"><input type="number" inputmode="numeric" name="workKg" min="1" max="500" value="${me.bench ? Math.round(me.bench * 0.9) : ''}" placeholder="예) 100"><i>kg</i></div></label>
-          <label class="field"><span>상대 1RM 조건</span><div class="suffix"><input type="number" inputmode="numeric" name="min1rm" min="0" max="500" placeholder="없으면 비워 두기"><i>kg 이상</i></div></label>
+          <label class="field"><span>내 작업 중량</span><div class="suffix"><input type="number" inputmode="numeric" name="workKg" min="1" max="500" value="${me.bench ? plate(me.bench * 0.9) : ''}" placeholder="예) 100"><i>kg</i></div></label>
+          <label class="field"><span>상대 1RM 조건</span><div class="suffix"><input type="number" inputmode="numeric" name="min1rm" min="0" max="500" placeholder="선택"><i>kg 이상</i></div></label>
         </div>
         <div class="small muted" id="condHint"></div>
         <label class="row small" id="reqVRow"><input type="checkbox" name="requireVerified"> 영상 인증된 1RM만 받기 <span class="muted">(고중량일수록 권장)</span></label>
@@ -1270,8 +1322,8 @@
         <div class="field"><span class="field-label">구인 유형</span>
           <div class="tabs" id="kindTabs"><button type="button" data-v="flash" class="on">번개 (이번 한 번)</button><button type="button" data-v="fixed">고정 메이트</button></div></div>
         <div class="grid2">
-          <label class="field" id="dateField"><span>날짜</span><select name="date">${dates.map((x, i) => `<option value="${x}">${i === 0 ? '오늘' : i === 1 ? '내일' : `${Number(x.slice(5, 7))}월 ${Number(x.slice(8))}일`}(${kstDow(x)})</option>`).join('')}</select></label>
-          <label class="field"><span>시간</span><select name="time">${TIMES.map((t) => `<option ${t === '19:00' ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="field" id="dateField"><span>날짜</span><select name="date">${dates.map((x, i) => `<option value="${x}" ${x === defDate ? 'selected' : ''}>${i === 0 ? '오늘' : i === 1 ? '내일' : `${Number(x.slice(5, 7))}월 ${Number(x.slice(8))}일`}(${kstDow(x)})</option>`).join('')}</select></label>
+          <label class="field"><span>시간</span><select name="time">${TIMES.map((t) => `<option ${t === defTime ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         </div>
         <div class="field" id="daysField" hidden><span class="field-label">요일 (여러 개 고를 수 있어요)</span>
           <div class="chips" id="dayPick">${state.config.days.map((x) => `<span class="chip" data-v="${x}">${x}</span>`).join('')}</div></div>
@@ -1293,12 +1345,12 @@
       document.getElementById('reqVRow').hidden = etc;
       document.getElementById('dateField').hidden = d.kind !== 'flash';
       document.getElementById('daysField').hidden = d.kind !== 'fixed';
-      if (!etc && !form.workKg.value && me[d.lift]) form.workKg.value = Math.round(me[d.lift] * 0.9);
+      if (!etc && !form.workKg.value && me[d.lift]) form.workKg.value = plate(me[d.lift] * 0.9);
       hint();
     };
     document.getElementById('liftChips').addEventListener('click', (e) => {
       const c = e.target.closest('.chip'); if (!c) return;
-      if (d.lift !== c.dataset.v && me[c.dataset.v]) form.workKg.value = Math.round(me[c.dataset.v] * 0.9);
+      if (d.lift !== c.dataset.v && me[c.dataset.v]) form.workKg.value = plate(me[c.dataset.v] * 0.9);
       d.lift = c.dataset.v;
       document.querySelectorAll('#liftChips .chip').forEach((x) => x.classList.toggle('on', x === c));
       sync();
@@ -1310,6 +1362,14 @@
       sync();
     });
     document.getElementById('dayPick').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (c) c.classList.toggle('on'); });
+    // 오늘을 고르면 이미 지난 시간은 고를 수 없게
+    const syncTimes = () => {
+      const first = form.date.value === dates[0] ? firstSlotToday() || '99:99' : '';
+      [...form.time.options].forEach((o) => { o.disabled = !!first && o.value < first; });
+      if (form.time.selectedOptions[0]?.disabled) form.time.value = [...form.time.options].find((o) => !o.disabled)?.value || form.time.value;
+    };
+    form.date.addEventListener('change', syncTimes);
+    syncTimes();
     form.workKg.addEventListener('input', hint);
     form.min1rm.addEventListener('input', hint);
     sync();
@@ -1318,11 +1378,12 @@
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
       try {
         await Backend.createPost({
-          lift: d.lift, kind: d.kind, workKg: form.workKg.value, min1rm: form.min1rm.value, requireVerified: form.requireVerified.checked,
+          lift: d.lift, kind: d.kind, workKg: d.lift === 'etc' ? '' : form.workKg.value, min1rm: d.lift === 'etc' ? '' : form.min1rm.value,
+          requireVerified: d.lift !== 'etc' && form.requireVerified.checked,
           date: form.date.value, time: form.time.value, days: [...document.querySelectorAll('#dayPick .chip.on')].map((x) => x.dataset.v),
           gymName: form.gymName.value, sameGender: form.sameGender.checked, memo: form.memo.value,
         });
-        toast('구인 글을 올렸어요. 요청이 오면 쪽지함으로 알려드릴게요');
+        toast('구인 글을 올렸어요. 요청이 오면 쪽지함으로 알려드릴게요.');
         sessionStorageSet('homeTab', 'posts');
         location.hash = '#/';
       } catch (err) {
@@ -1338,7 +1399,7 @@
     const posts = await Backend.myPosts();
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/me">← 내 정보</a>
+      <a class="back-link small" href="#/me">${ic('chevron-left', 16)}내 정보</a>
       <div class="row"><h1 style="flex:1">내 구인 글</h1><a class="btn sm" href="#/posts/new">${ic('plus', 16)}새 글</a></div>
       ${posts.length ? posts.map((p) => {
         const pending = p.requests.filter((r) => r.status === 'pending');
@@ -1354,7 +1415,7 @@
               <div class="note-body">${esc(r.content)}</div>
               <div class="row"><button class="btn sm" data-act="decline">거절</button><span class="spacer"></span><button class="btn sm primary" data-act="accept">수락하고 채팅</button></div>
             </div>`).join('') : '<div class="small muted">아직 받은 요청이 없어요.</div>'}
-          ${done.length ? `<div class="small muted">처리한 요청: ${done.map((r) => `${esc(r.other.nickname)}(${r.status === 'accepted' ? '수락' : '거절'})`).join(', ')}</div>` : ''}
+          ${done.length ? `<div class="small muted">처리한 요청: ${done.map((r) => (r.status === 'accepted' && r.roomId ? `<a class="link" href="#/chat/${r.roomId}">${esc(r.other.nickname)} 채팅</a>` : `${esc(r.other.nickname)}(${r.status === 'accepted' ? '수락' : '거절'})`)).join(', ')}</div>` : ''}
           <div class="row"><button class="btn sm" data-post="${p.status === 'open' ? 'close' : 'open'}">${p.status === 'open' ? '모집 마감하기' : '다시 모집하기'}</button>
             <span class="spacer"></span><button class="btn sm danger" data-post="delete">글 삭제</button></div>
         </section>`;
@@ -1484,6 +1545,11 @@
       e.preventDefault();
       const f = form.photo.files[0];
       if (!f) return toast('운동 사진을 올려 주세요.');
+      const l = form.lift.value; const kg = Number(form.weightKg.value); const reps = Number(form.reps.value);
+      if (!l && (form.weightKg.value || form.reps.value)) return toast('최고 세트의 종목을 골라 주세요.');
+      if (l && (!kg || !reps)) return toast('최고 세트의 중량과 횟수를 함께 입력해 주세요.');
+      if (l && (kg < 1 || kg > 500 || kg * 2 !== Math.trunc(kg * 2))) return toast('중량은 1~500kg, 0.5kg 단위로 입력해 주세요.');
+      if (l && (reps < 1 || reps > 30 || !Number.isInteger(reps))) return toast('횟수는 1~30회로 입력해 주세요.');
       const btn = form.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = '올리는 중...';
       try {
         const path = await Backend.uploadWorkoutPhoto(state.me.id, f);
@@ -1544,7 +1610,7 @@
     }
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/workout">← 오늘 인증</a>
+      <a class="back-link small" href="#/workout">${ic('chevron-left', 16)}오늘 인증</a>
       <h1>1RM 영상 인증</h1>
       <div class="lift-tiles">${LIFTS3.map((l) => { const [st, kg] = tileState(l); return `<button type="button" class="${l === sel ? 'on' : ''}" data-l="${l}"><span>${LIFT[l]}</span><b>${kg}<small>kg</small></b><span>${st}</span></button>`; }).join('')}</div>
       <div class="stack" style="margin-top:16px">${body}</div>`));
@@ -1560,7 +1626,7 @@
       const tick = () => {
         const el = document.getElementById('codeLeft'); if (!el) { clearInterval(codeTimer); return; }
         const left = new Date(v.codeExpiresAt) - Date.now();
-        if (left <= 0) { clearInterval(codeTimer); viewLifts(sel); return; }
+        if (left <= 0) { clearInterval(codeTimer); viewLifts(sel).catch((e) => toast(e.message)); return; }
         el.textContent = `${Math.floor(left / 3600e3)}시간 ${Math.floor((left % 3600e3) / 60e3)}분 남음`;
       };
       tick(); codeTimer = setInterval(tick, 30000);
@@ -1648,7 +1714,7 @@
           <label class="field"><span>다니는 헬스장</span><input type="text" name="gymName" value="${esc(me.gymName)}" maxlength="50" placeholder="예) 역삼 OO피트니스"></label>
           <div class="field"><span class="field-label">자주 가는 요일</span>${chips('dayChips', c.days, me.workoutDays)}</div>
           <div class="field"><span class="field-label">자주 가는 시간대</span>${chips('timeChips', c.times, me.workoutTimes)}</div>
-          <label class="field"><span>자기소개</span><textarea name="bio" maxlength="500" placeholder="예) 주 4회 분할 루틴 하고 있어요. 하체날 서로 스팟 봐주실 분 구합니다!">${esc(me.bio)}</textarea></label>
+          <label class="field"><span>자기소개</span><textarea name="bio" maxlength="500" placeholder="예) 주 4회 분할 루틴 하고 있어요. 하체날 서로 스팟 봐주실 분을 찾고 있어요.">${esc(me.bio)}</textarea></label>
         </section>
 
         <section class="card stack">

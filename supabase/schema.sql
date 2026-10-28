@@ -606,13 +606,17 @@ language sql stable security definer set search_path = public as $$
     'myCheckin', case when r.user_a = uid then a.checkin_a else a.checkin_b end,
     'otherCheckin', case when r.user_a = uid then a.checkin_b else a.checkin_a end,
     'canCheckin', a.status = 'confirmed' and (case when r.user_a = uid then a.checkin_a else a.checkin_b end) is null
-                  and now() between a.meet_at - interval '1 hour' and a.meet_at + interval '3 hours',
+                  and now() between a.meet_at - interval '1 hour' and a.meet_at + interval '1 hour',
     'checkinOpensAt', a.meet_at - interval '1 hour',
     'myReview', (select jsonb_build_object('good', rv.good, 'noshow', rv.noshow) from public.reviews rv
                   where rv.appointment_id = a.id and rv.reviewer_id = uid),
     'canReview', a.status in ('confirmed', 'done')
                  and not exists (select 1 from public.reviews rv where rv.appointment_id = a.id and rv.reviewer_id = uid)
-                 and ((a.checkin_a is not null and a.checkin_b is not null) or now() > a.meet_at + interval '30 minutes'))
+                 and ((a.checkin_a is not null and a.checkin_b is not null) or now() > a.meet_at + interval '1 hour'),
+    'canNoshow', a.status = 'confirmed'
+                 and (case when r.user_a = uid then a.checkin_a else a.checkin_b end) is not null
+                 and (case when r.user_a = uid then a.checkin_b else a.checkin_a end) is null
+                 and now() > a.meet_at + interval '1 hour')
   from public.rooms r where r.id = a.room_id
 $$;
 
@@ -624,9 +628,9 @@ $$;
 
 -- 내가 속한 채팅방의 약속 (상대 id 와 함께)
 create or replace function public._my_appt(p_appt bigint, uid uuid, out a public.appointments, out r public.rooms, out other uuid)
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql security definer set search_path = public as $$
 begin
-  select * into a from public.appointments where id = p_appt;
+  select * into a from public.appointments where id = p_appt for update;  -- 확정 · 취소가 동시에 와도 하나만 처리
   select * into r from public.rooms where id = a.room_id and uid in (user_a, user_b);
   if a.id is null or r.id is null then raise exception '약속을 찾을 수 없습니다.'; end if;
   other := case when r.user_a = uid then r.user_b else r.user_a end;
@@ -802,14 +806,14 @@ language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := public._require_active();
   me public.locations := public._require_verified(uid);
-  r float8 := least(greatest(coalesce(radius_km, 3), 0.5), 10);
-  dlat float8 := r / 111;
-  dlng float8 := r / (111 * cos(radians(me.lat)));
+  r float8 := least(greatest(ceil(coalesce(radius_km, 3)), 1), 10);  -- 1km 단위만 (정확한 거리 역추적 방지)
+  dlat float8 := (r + 1) / 111;
+  dlng float8 := (r + 1) / (111 * cos(radians(me.lat)));
   vdays int := (public._settings()).verify_valid_days;
   users jsonb;
 begin
-  select coalesce(jsonb_agg(j order by dist), '[]'::jsonb) into users from (
-    select public._profile_json(p, l, me.lat, me.lng) as j, public._haversine(me.lat, me.lng, l.lat, l.lng) as dist
+  select coalesce(jsonb_agg(j order by fk, nick), '[]'::jsonb) into users from (
+    select public._profile_json(p, l, me.lat, me.lng) as j, public._fuzzy_km(me.lat, me.lng, l.lat, l.lng, p.id) as fk, p.nickname as nick
     from public.profiles p
     join public.locations l on l.user_id = p.id
     join public.account_status s on s.user_id = p.id
@@ -818,7 +822,7 @@ begin
       and l.lat between me.lat - dlat and me.lat + dlat
       and l.lng between me.lng - dlng and me.lng + dlng
       and not public._is_blocked(uid, p.id)
-  ) t where dist <= r;
+  ) t where fk <= r;
   return jsonb_build_object('radius', r, 'region', me.region, 'users', users);
 end $$;
 
@@ -925,7 +929,7 @@ declare
   x public.posts;
   meet timestamptz;
 begin
-  select * into n from public.notes where id = p_note and to_id = uid;
+  select * into n from public.notes where id = p_note and to_id = uid for update;  -- 두 번 눌러도 한 번만
   if not found or public._is_blocked(n.from_id, n.to_id) or not public._is_active(n.from_id) then raise exception '쪽지를 찾을 수 없습니다.'; end if;
   if n.status <> 'pending' then raise exception '이미 처리된 쪽지입니다.'; end if;
   insert into public.rooms (user_a, user_b) values (least(n.from_id, n.to_id), greatest(n.from_id, n.to_id))
@@ -1231,6 +1235,10 @@ begin
     v_days := public._ordered(p->'days', array['월', '화', '수', '목', '금', '토', '일']);
     if cardinality(v_days) = 0 then raise exception '요일을 하나 이상 골라 주세요.'; end if;
   end if;
+  perform pg_advisory_xact_lock(hashtext('post:' || uid::text));
+  if (select count(*) from public.posts where user_id = uid and created_at > now() - interval '1 day') >= 10 then
+    raise exception '구인 글은 하루 10개까지 올릴 수 있어요.';
+  end if;
   if (select count(*) from public.posts x where x.user_id = uid and public._post_open(x)) >= 3 then
     raise exception '열려 있는 구인 글은 3개까지예요. 다른 글을 마감한 뒤 올려 주세요.';
   end if;
@@ -1250,18 +1258,18 @@ declare
   uid uuid := public._require_active();
   me public.locations := public._require_verified(uid);
   my_gender text := (select gender from public.profiles where id = uid);
-  r float8 := least(greatest(coalesce(radius_km, 3), 0.5), 10);
-  dlat float8 := r / 111;
-  dlng float8 := r / (111 * cos(radians(me.lat)));
+  r float8 := least(greatest(ceil(coalesce(radius_km, 3)), 1), 10);  -- 1km 단위만 (정확한 거리 역추적 방지)
+  dlat float8 := (r + 1) / 111;
+  dlng float8 := (r + 1) / (111 * cos(radians(me.lat)));
   vdays int := (public._settings()).verify_valid_days;
   res jsonb;
 begin
-  select coalesce(jsonb_agg(j order by dist, meet), '[]'::jsonb) into res from (
+  select coalesce(jsonb_agg(j order by dist, meet, pid), '[]'::jsonb) into res from (
     select public._post_json(x, uid) || jsonb_build_object('author', jsonb_build_object(
              'id', p.id, 'nickname', p.nickname, 'photo', p.photo_path, 'gender', p.gender, 'age', p.age,
              'verified', coalesce(p.bench_verified, p.squat_verified, p.deadlift_verified) is not null,
              'distanceKm', case when p.id = uid then 0 else public._fuzzy_km(me.lat, me.lng, l.lat, l.lng, p.id) end)) as j,
-           case when p.id = uid then -1 else public._haversine(me.lat, me.lng, l.lat, l.lng) end as dist,
+           case when p.id = uid then -1 else public._fuzzy_km(me.lat, me.lng, l.lat, l.lng, p.id) end as dist, x.id as pid,
            coalesce(x.meet_at, public._next_occurrence(x.days, x.time_of_day)) as meet
     from public.posts x
     join public.profiles p on p.id = x.user_id
@@ -1273,7 +1281,7 @@ begin
             and l.verified_at > now() - make_interval(days => vdays)
             and l.lat between me.lat - dlat and me.lat + dlat
             and l.lng between me.lng - dlng and me.lng + dlng
-            and public._haversine(me.lat, me.lng, l.lat, l.lng) <= r
+            and public._fuzzy_km(me.lat, me.lng, l.lat, l.lng, p.id) <= r
             and not public._is_blocked(uid, p.id)
             and (not x.same_gender or p.gender is not distinct from my_gender)))
   ) t;
@@ -1311,6 +1319,7 @@ begin
     update public.posts set status = 'closed' where id = x.id;
   elsif p_status = 'open' then
     if x.kind = 'flash' and x.meet_at < now() - interval '1 hour' then raise exception '시간이 지난 번개 글은 다시 열 수 없어요. 새 글을 올려 주세요.'; end if;
+    perform pg_advisory_xact_lock(hashtext('post:' || uid::text));
     if (select count(*) from public.posts y where y.user_id = uid and public._post_open(y)) >= 3 then
       raise exception '열려 있는 구인 글은 3개까지예요.';
     end if;
@@ -1353,8 +1362,15 @@ begin
   if public._is_blocked(uid, other) or not public._is_active(other) then raise exception '약속을 잡을 수 없는 상대예요.'; end if;
   if p_meet_at is null or p_meet_at < now() then raise exception '지금 이후의 시간을 골라 주세요.'; end if;
   if p_meet_at > now() + interval '30 days' then raise exception '30일 안의 날짜만 고를 수 있어요.'; end if;
-  select * into a from public.appointments where room_id = r.id and status in ('pending', 'confirmed');
+  select * into a from public.appointments where room_id = r.id and status in ('pending', 'confirmed') for update;
   changed := found;
+  if changed and a.status = 'confirmed' and (a.checkin_a is not null or a.checkin_b is not null or a.meet_at < now() + interval '2 hours') then
+    raise exception '확정된 약속은 2시간 전부터 바꿀 수 없어요. 취소하거나 운동 뒤 후기를 남겨 주세요.';
+  end if;
+  if (select count(*) from public.messages where room_id = r.id and sender_id = uid and kind = 'system'
+        and (content like '%약속을 제안했어요%' or content like '%바꾸자고 했어요%') and created_at > now() - interval '1 day') >= 10 then
+    raise exception '약속 제안은 하루 10번까지 할 수 있어요.';
+  end if;
   if changed then
     update public.appointments set meet_at = p_meet_at, title = v_title, place = coalesce(v_place, place), status = 'pending',
            proposed_by = uid, checkin_a = null, checkin_b = null, updated_at = now()
@@ -1395,7 +1411,7 @@ declare
 begin
   if a.status <> 'confirmed' then raise exception '확정된 약속만 체크인할 수 있어요.'; end if;
   if now() < a.meet_at - interval '1 hour' then raise exception '약속 1시간 전부터 체크인할 수 있어요.'; end if;
-  if now() > a.meet_at + interval '3 hours' then raise exception '체크인 시간이 지났어요.'; end if;
+  if now() > a.meet_at + interval '1 hour' then raise exception '체크인 시간이 지났어요. (약속 1시간 뒤까지)'; end if;
   if (case when mine_a then a.checkin_a else a.checkin_b end) is not null then raise exception '이미 체크인했어요.'; end if;
   update public.appointments set checkin_a = case when mine_a then now() else checkin_a end,
                                  checkin_b = case when mine_a then checkin_b else now() end, updated_at = now()
@@ -1419,7 +1435,11 @@ declare
 begin
   if a.status not in ('pending', 'confirmed') then raise exception '이미 끝난 약속이에요.'; end if;
   if a.checkin_a is not null and a.checkin_b is not null then raise exception '두 사람 모두 체크인한 약속은 취소할 수 없어요.'; end if;
-  late := a.status = 'confirmed' and a.meet_at - now() < interval '2 hours';
+  if a.status = 'confirmed' and now() > a.meet_at
+     and (case when (x.r).user_a = uid then a.checkin_b else a.checkin_a end) is not null then
+    raise exception '상대가 이미 도착한 약속은 취소할 수 없어요.';
+  end if;
+  late := a.status = 'confirmed' and now() between a.meet_at - interval '2 hours' and a.meet_at + interval '1 hour';
   update public.appointments set status = 'cancelled', cancelled_by = uid, late_cancel = late, updated_at = now()
    where id = a.id returning * into a;
   perform public._system_message(a.room_id, uid, nick || '님이 약속을 취소했어요' || case when late then ' (2시간 이내 취소)' else '' end);
@@ -1446,7 +1466,10 @@ begin
   end if;
   if coalesce(p_noshow, false) then
     if other_checkin is not null then raise exception '상대가 체크인한 약속은 노쇼로 신고할 수 없어요.'; end if;
+    if (case when (x.r).user_a = uid then a.checkin_a else a.checkin_b end) is null then raise exception '내가 체크인한 약속만 노쇼로 신고할 수 있어요.'; end if;
+    if now() <= a.meet_at + interval '1 hour' then raise exception '체크인 시간(약속 1시간 뒤)이 지난 뒤에 신고할 수 있어요.'; end if;
     insert into public.reviews (appointment_id, reviewer_id, target_id, good, noshow) values (a.id, uid, x.other, null, true);
+    perform public._system_message(a.room_id, uid, '약속이 끝났어요');
   else
     if p_good is null then raise exception '좋았는지 아쉬웠는지 골라 주세요.'; end if;
     select coalesce(array_agg(t), '{}') into v_tags from unnest(coalesce(p_tags, '{}')) t
@@ -1491,7 +1514,8 @@ begin
   if (select count(*) from public.lift_verifications where user_id = uid and code_issued_at > now() - interval '1 day') >= 10 then
     raise exception '오늘은 코드를 더 받을 수 없어요. 내일 다시 시도해 주세요.';
   end if;
-  delete from public.lift_verifications where user_id = uid and lift = p_lift and status = 'code';
+  update public.lift_verifications set status = 'rejected', reject_reason = '새 코드를 받아 이전 코드는 쓸 수 없어요', reviewed_at = now()
+   where user_id = uid and lift = p_lift and status = 'code';
   insert into public.lift_verifications (user_id, lift, code)
   values (uid, p_lift, lpad((1000 + floor(random() * 9000))::int::text, 4, '0'))
   returning * into v;
@@ -1538,6 +1562,7 @@ declare
 begin
   select * into v from public.lift_verifications where id = p_id;
   if not found or v.status <> 'pending' then raise exception '검토할 신청을 찾을 수 없습니다.'; end if;
+  if v.user_id = admin then raise exception '본인 신청은 다른 관리자가 검토해야 해요.'; end if;
   if coalesce(p_approve, false) then
     update public.profiles set
       bench_verified    = case when v.lift = 'bench'    then v.weight_kg else bench_verified end,

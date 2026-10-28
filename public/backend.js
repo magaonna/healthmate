@@ -100,6 +100,9 @@
     typingChannels.set(roomId, c);
     return { send: (payload) => c.send({ type: 'broadcast', event: 'typing', payload }).catch(() => {}) };
   }
+  function leaveTyping(roomId) {
+    if (typingChannels.has(roomId)) { sb.removeChannel(typingChannels.get(roomId)); typingChannels.delete(roomId); }
+  }
 
   window.Backend = {
     client: sb,
@@ -180,6 +183,7 @@
     subscribe,
     unsubscribe,
     typingChannel,
+    leaveTyping,
 
     // ---- 구인 글
     createPost(p) { return rpc('create_post', { p }); },

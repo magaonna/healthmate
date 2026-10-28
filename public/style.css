@@ -348,3 +348,25 @@ section.card h2 { margin-bottom: 0; }
 .code { font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
 .guide { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-1); }
 .lift-video { width: 100%; max-height: 360px; background: var(--ink-900); border-radius: var(--radius-md); }
+
+/* v2 검토 반영: 채팅 상단 · 아이콘 버튼 · 고정 요청 버튼 · 알림 */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; background: none; color: var(--ink-900); cursor: pointer; position: relative; flex: none; padding: 0; }
+.icon-btn .badge { top: 4px; left: auto; right: 2px; }
+.top-right { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 70%; }
+.top-right .region-chip { max-width: none; }
+.back-link { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--gray-600); font-weight: 500; min-height: 44px; }
+.home-title { margin: var(--space-2) 0 var(--space-1); }
+.list-caption { display: flex; justify-content: space-between; margin-bottom: var(--space-2); }
+.post-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat { height: 100vh; height: 100dvh; }
+.sheet-close { position: absolute; top: var(--space-2); right: var(--space-2); }
+.sheet-footer { position: sticky; bottom: calc(-1 * (var(--space-6) + env(safe-area-inset-bottom))); margin: var(--space-4) calc(-1 * var(--space-5)) calc(-1 * (var(--space-6) + env(safe-area-inset-bottom)));
+  padding: var(--space-3) var(--space-5) calc(var(--space-4) + env(safe-area-inset-bottom)); background: var(--white); border-top: 1px solid var(--gray-200); display: flex; flex-direction: column; gap: var(--space-2); }
+.pref-box { border: 0; border-top: 1px solid var(--gray-200); border-radius: 0; padding: var(--space-4) 0 0; }
+.noti-item { color: var(--ink-900); }
+#recTabs .chip { height: var(--control-h-sm); font-size: 14px; padding: 0 var(--space-3); }
+.code { font-size: 28px; line-height: 36px; }
+.badge { font-size: 12px; padding: 0 4px; }
+.msg .time { font-size: 12px; line-height: 16px; }
+.msg .bubble { font-size: 16px; line-height: 24px; }
+.modal:not(.hidden) ~ .toast { bottom: auto; top: calc(var(--space-4) + env(safe-area-inset-top)); }
