@@ -91,7 +91,7 @@
     typingChannels.forEach((c) => sb.removeChannel(c));
     typingChannels.clear();
   }
-  const toMsg = (m) => ({ id: m.id, roomId: m.room_id, senderId: m.sender_id, content: m.content, createdAt: m.created_at, readAt: m.read_at });
+  const toMsg = (m) => ({ id: m.id, roomId: m.room_id, senderId: m.sender_id, content: m.content, kind: m.kind || 'text', createdAt: m.created_at, readAt: m.read_at });
 
   // 입력 중 표시: 채팅방별 broadcast 채널
   function typingChannel(roomId, onTyping) {
@@ -143,6 +143,20 @@
       return path;
     },
     async removePhoto(path) { if (path) await sb.storage.from('avatars').remove([path]).catch(() => {}); },
+    // 비공개 버킷(운동 사진 · 인증 영상)에 올리기 → 경로
+    async uploadPrivate(bucket, uid, file, { types, maxMb }) {
+      if (file.size > maxMb * 1024 * 1024) throw new Error(`파일은 ${maxMb}MB 이하만 올릴 수 있습니다.`);
+      if (!types[file.type]) throw new Error(`${Object.values(types).join(', ').toUpperCase()} 파일만 올릴 수 있습니다.`);
+      const path = `${uid}/${Date.now()}.${types[file.type]}`;
+      const { error } = await sb.storage.from(bucket).upload(path, file, { contentType: file.type });
+      if (error) throw toError(error);
+      return path;
+    },
+    async signedUrl(bucket, path) {
+      const { data, error } = await sb.storage.from(bucket).createSignedUrl(path, 3600);
+      if (error) throw toError(error);
+      return data.signedUrl;
+    },
     updateProfile(p) { return rpc('update_my_profile', { p }); },
     verifyLocation({ lat, lng, accuracy, region, district, manual, providedTo }) {
       return rpc('verify_location', { p_lat: lat, p_lng: lng, p_accuracy: accuracy ?? null, p_region: region || '', p_district: district || '',
@@ -152,7 +166,7 @@
     profile(id) { return rpc('get_profile', { p_user: id }); },
 
     // ---- 쪽지
-    sendNote(toId, content) { return rpc('send_note', { p_to: toId, p_content: content }); },
+    sendNote(toId, content, postId = null) { return rpc('send_note', { p_to: toId, p_content: content, p_post: postId }); },
     notes(box) { return rpc('list_notes', { p_box: box }); },
     acceptNote(id) { return rpc('accept_note', { p_note: id }); },
     declineNote(id) { return rpc('decline_note', { p_note: id }); },
@@ -167,6 +181,42 @@
     unsubscribe,
     typingChannel,
 
+    // ---- 구인 글
+    createPost(p) { return rpc('create_post', { p }); },
+    nearbyPosts(radiusKm) { return rpc('nearby_posts', { radius_km: radiusKm }); },
+    myPosts() { return rpc('my_posts'); },
+    setPostStatus(id, status) { return rpc('set_post_status', { p_post: id, p_status: status }); },
+    deletePost(id) { return rpc('delete_post', { p_post: id }); },
+
+    // ---- 운동 약속
+    proposeAppointment(roomId, meetAt, title, place) {
+      return rpc('propose_appointment', { p_room: roomId, p_meet_at: meetAt, p_title: title || null, p_place: place || null });
+    },
+    confirmAppointment(id) { return rpc('confirm_appointment', { p_appt: id }); },
+    checkinAppointment(id) { return rpc('checkin_appointment', { p_appt: id }); },
+    cancelAppointment(id) { return rpc('cancel_appointment', { p_appt: id }); },
+    reviewAppointment(id, { good, tags, comment, noshow }) {
+      return rpc('review_appointment', { p_appt: id, p_good: good ?? null, p_tags: tags || [], p_comment: comment || '', p_noshow: !!noshow });
+    },
+
+    // ---- 1RM 영상 인증
+    myLifts() { return rpc('my_lift_verifications'); },
+    issueLiftCode(lift) { return rpc('issue_lift_code', { p_lift: lift }); },
+    uploadLiftVideo(uid, file) {
+      return this.uploadPrivate('lift-videos', uid, file, { types: { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' }, maxMb: 50 });
+    },
+    submitLiftVideo(id, weight, path) { return rpc('submit_lift_video', { p_id: id, p_weight: weight, p_video: path }); },
+    liftVideoUrl(path) { return this.signedUrl('lift-videos', path); },
+
+    // ---- 오늘 운동 인증 · 응원
+    uploadWorkoutPhoto(uid, file) {
+      return this.uploadPrivate('workouts', uid, file, { types: { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }, maxMb: 5 });
+    },
+    workoutPhotoUrl(path) { return this.signedUrl('workouts', path); },
+    logWorkout(p) { return rpc('log_workout', { p }); },
+    myWorkout() { return rpc('my_workout'); },
+    sendCheer(roomId) { return rpc('send_cheer', { p_room: roomId }); },
+
     // ---- 차단 · 신고
     block(id) { return rpc('block_user', { p_target: id }); },
     unblock(id) { return rpc('unblock_user', { p_target: id }); },
@@ -180,6 +230,8 @@
     adminResolve(id, action, reason) { return rpc('admin_resolve_report', { p_report: id, p_action: action, p_reason: reason || null }); },
     adminSuspended() { return rpc('admin_list_suspended'); },
     adminUnsuspend(id) { return rpc('admin_unsuspend', { p_user: id }); },
+    adminLifts(status) { return rpc('admin_list_lifts', { p_status: status }); },
+    adminReviewLift(id, approve, reason) { return rpc('admin_review_lift', { p_id: id, p_approve: approve, p_reason: reason || null }); },
 
     // ---- 계정
     async exportData() {
@@ -198,6 +250,11 @@
         throw new Error("확인을 위해 '탈퇴'를 입력해 주세요.");
       }
       await this.removePhoto(me.photoPath);
+      // 운동 인증 사진 · 인증 영상 파일도 함께 삭제 (DB 기록은 탈퇴 시 함께 지워짐)
+      for (const bucket of ['workouts', 'lift-videos']) {
+        const { data } = await sb.storage.from(bucket).list(me.id, { limit: 1000 }).catch(() => ({ data: null }));
+        if (data?.length) await sb.storage.from(bucket).remove(data.map((f) => `${me.id}/${f.name}`)).catch(() => {});
+      }
       await rpc('delete_my_account');
       unsubscribe();
       await sb.auth.signOut({ scope: 'local' }).catch(() => {});
