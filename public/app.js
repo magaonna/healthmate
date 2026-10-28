@@ -27,7 +27,8 @@
 
   const genderLabel = { male: '남성', female: '여성' };
   const avatar = (photo, cls = '') => `<span class="avatar ${cls}">${photo ? `<img src="${esc(photo)}" alt="">` : '💪'}</span>`;
-  const distLabel = (km) => (km == null ? '' : km < 0.5 ? '500m 이내' : `${km}km`);
+  // 거리는 서버가 1km 단위로 올림해서 보낸다 (위치 역추적 방지, Q1)
+  const distLabel = (km) => (km == null ? '' : km <= 1 ? '1km 이내' : `약 ${km}km`);
   const parseDate = (s) => new Date(s);
   function timeLabel(s) {
     if (!s) return '';
@@ -367,7 +368,7 @@
         ${loc ? `<div>현재 인증된 동네: <b>${esc(loc.region)}</b> <span class="muted small">${esc(loc.district || '')}</span><br>
           <span class="small ${loc.verified ? 'muted' : ''}" style="${loc.verified ? '' : 'color:var(--danger)'}">${loc.verified ? `인증일 ${esc(timeLabel(loc.verifiedAt))} · ${state.config.verifyValidDays}일간 유효` : '인증 기간이 만료되었어요. 다시 인증해 주세요.'}</span></div>` : ''}
         <p class="muted small" style="margin:0">지금 계신 곳의 GPS 위치로 동네를 인증해요. 인증된 동네 반경 안의 헬스메이트만 볼 수 있어요.<br>
-        🔒 다른 사람에게는 정확한 위치가 아닌 대략적인 위치(약 300m 오차)만 보여요.</p>
+        🔒 다른 사람에게는 정확한 위치가 아닌 대략적인 위치(약 300m 범위)와 1km 단위 거리만 보여요.</p>
         <div id="verifyMap"></div>
         <div id="verifyResult" class="small"></div>
         <button class="btn primary block" id="gpsBtn">📍 현재 위치로 동네 인증하기</button>
