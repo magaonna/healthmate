@@ -138,13 +138,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--ink-900); box-sh
 .home-controls .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .home-controls .chips::-webkit-scrollbar { display: none; }
 .home-controls .chip { white-space: nowrap; }
-.home-body { flex: 1; display: flex; min-height: 0; }
-#map { flex: 1.2; min-height: 0; background: var(--gray-100); }
-.home-list { flex: 1; overflow-y: auto; padding: var(--space-2) var(--space-5); background: var(--white); }
-@media (max-width: 760px) {
-  .home-body { flex-direction: column; }
-  #map { flex: 0 0 38%; margin: 0 var(--space-5); border-radius: var(--radius-md); overflow: hidden; }
-}
+.home-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) var(--space-5); background: var(--white); }
 .user-card { display: flex; gap: var(--space-3); padding: var(--space-4) 0; background: none; border: 0; border-bottom: 1px solid var(--gray-200); border-radius: 0; cursor: pointer; margin: 0; }
 .user-card:hover .name, .user-card.hl .name { text-decoration: underline; text-underline-offset: 3px; }
 .user-card .meta { flex: 1; min-width: 0; }
@@ -153,13 +147,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--ink-900); box-sh
 .user-card .tags { display: flex; gap: 0; flex-wrap: wrap; color: var(--gray-600); font-size: 14px; line-height: 20px; }
 .user-card .tags .tag.gray + .tag.gray::before { content: "·"; margin: 0 6px; }
 
-.mate-pin { position: relative; width: 32px; height: 32px; cursor: pointer; }
-.mate-marker { background: var(--ink-900); color: var(--white); border: 2px solid var(--white); border-radius: var(--radius-full); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; overflow: hidden; }
-.mate-marker img { width: 100%; height: 100%; object-fit: cover; }
-.mate-label { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: var(--ink-900); color: var(--white); font-size: 12px; padding: 2px 8px; border-radius: var(--radius-sm); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s; }
-.mate-pin:hover { z-index: 10; }
-.mate-pin:hover .mate-label { opacity: 1; }
-.me-marker { width: 16px; height: 16px; background: var(--ink-900); border: 3px solid var(--white); border-radius: var(--radius-full); box-shadow: 0 0 0 6px rgba(17,17,17,.12); }
 
 /* ---------- 모달 */
 .modal { position: fixed; inset: 0; z-index: 1500; display: flex; align-items: flex-end; justify-content: center; }
@@ -206,14 +193,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--ink-900); box-sh
 .chat-input textarea { min-height: 44px; max-height: 120px; height: 44px; resize: none; padding: 10px var(--space-3); }
 
 /* ---------- 동네 인증 */
-#verifyMap { height: 240px; border-radius: var(--radius-md); border: 0; background: var(--gray-100); }
 
 /* ---------- 내 정보 */
 .photo-pick { display: flex; align-items: center; gap: var(--space-4); }
 
 .toast { position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + var(--space-5)); transform: translateX(-50%) translateY(16px); background: var(--ink-900); color: var(--white); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); font-size: 14px; line-height: 20px; opacity: 0; pointer-events: none; transition: all .2s; z-index: 2000; max-width: calc(100% - 40px); text-align: center; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.leaflet-container { font: inherit; }
 
 /* ---------- 헬스 프로필 */
 .sm-select { width: auto; min-height: var(--control-h-sm); padding: 0 var(--space-3); font-size: 14px; border-radius: var(--radius-sm); }
@@ -296,5 +281,3 @@ section.card h2 { margin-bottom: 0; }
 .agree-row label { align-items: flex-start; }
 .agree-row label input { margin-top: 2px; }
 
-/* ---------- 지도 로드 실패 */
-.map-unavailable { height: 100%; min-height: 120px; display: flex; align-items: center; justify-content: center; padding: var(--space-4); text-align: center; font-size: 14px; color: var(--gray-600); background: var(--gray-100); }

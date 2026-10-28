@@ -7,7 +7,7 @@ window.GYMJJAK_CONFIG = {
   supabaseUrl: 'https://oyjujpezcruxphcsnobf.supabase.co',
   supabaseKey: 'sb_publishable_kdMUokZT2UybeBPgqdto5A_Hg30dM3q',
 
-  // (선택) 카카오맵 JavaScript 키. 비워두면 OpenStreetMap 지도 사용
+  // (선택) 카카오 JavaScript 키. 넣으면 동네 이름을 카카오 기준으로 변환, 비워두면 OpenStreetMap 사용
   kakaoJsKey: '',
 
   // 로그인 방법. Supabase 대시보드 → Authentication → Sign In / Providers 에서 켠 것만 넣으세요: 'kakao', 'google'
