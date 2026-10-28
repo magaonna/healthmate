@@ -5,22 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>짐짝 GYMJJAK - 우리 동네 헬스메이트 찾기</title>
   <meta name="description" content="짐짝(GYMJJAK) - 우리 동네에서 같이 운동할 헬스메이트를 찾아보세요" />
-  <meta name="theme-color" content="#16a34a" />
+  <meta name="theme-color" content="#ffffff" />
+  <link rel="preload" href="fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header id="topbar" class="hidden">
-    <a href="#/" class="brand">🏋️ 짐짝 <small>GYMJJAK</small></a>
+    <a href="#/" class="brand">짐짝 <small>GYMJJAK</small></a>
     <span id="topRegion" class="region-chip"></span>
   </header>
 
   <main id="app"></main>
 
   <nav id="tabbar" class="hidden">
-    <a href="#/" data-tab="home"><span class="ic">📍</span>동네</a>
-    <a href="#/notes" data-tab="notes"><span class="ic">✉️</span>쪽지<b class="badge" id="badgeNotes"></b></a>
-    <a href="#/chats" data-tab="chats"><span class="ic">💬</span>채팅<b class="badge" id="badgeChats"></b></a>
-    <a href="#/me" data-tab="me"><span class="ic">👤</span>내 정보</a>
+    <a href="#/" data-tab="home"><span class="ic"><svg class="i" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" /></svg></span>동네</a>
+    <a href="#/notes" data-tab="notes"><span class="ic"><svg class="i" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2" /> <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg></span>쪽지<b class="badge" id="badgeNotes"></b></a>
+    <a href="#/chats" data-tab="chats"><span class="ic"><svg class="i" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" /></svg></span>채팅<b class="badge" id="badgeChats"></b></a>
+    <a href="#/me" data-tab="me"><span class="ic"><svg class="i" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /> <circle cx="12" cy="7" r="4" /></svg></span>내 정보</a>
   </nav>
 
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">

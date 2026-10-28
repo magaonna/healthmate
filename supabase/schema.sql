@@ -21,6 +21,13 @@ create table if not exists public.app_settings (
 );
 insert into public.app_settings (id) values (1) on conflict (id) do nothing;
 
+-- 위치 흐림용 비밀값 (정책 없음 → 브라우저에서 읽기·쓰기 불가, Q1)
+create table if not exists public.app_secrets (
+  id            int primary key default 1 check (id = 1),
+  location_salt text not null default md5(random()::text || clock_timestamp()::text || random()::text)
+);
+insert into public.app_secrets (id) values (1) on conflict (id) do nothing;
+
 -- ---------------------------------------------------------------------
 -- 테이블
 -- ---------------------------------------------------------------------
@@ -150,6 +157,8 @@ create table if not exists public.admins (
 -- (messages / notes 조회 정책은 실시간 알림을 받기 위해 필요)
 -- ---------------------------------------------------------------------
 alter table public.app_settings   enable row level security;
+alter table public.app_secrets    enable row level security;
+revoke all on public.app_secrets from public, anon, authenticated;
 alter table public.profiles       enable row level security;
 alter table public.account_status enable row level security;
 alter table public.locations      enable row level security;
@@ -219,12 +228,27 @@ language sql immutable as $$
     + cos(radians(lat1)) * cos(radians(lat2)) * power(sin(radians(lng2 - lng1) / 2), 2)))
 $$;
 
--- 다른 회원에게 보여줄 근사 좌표: 약 300m 격자 + 회원별 고정 오프셋
+create or replace function public._location_salt() returns text
+language sql stable security definer set search_path = public as $$
+  select location_salt from public.app_secrets where id = 1
+$$;
+
+-- 다른 회원에게 보여줄 근사 좌표: 약 300m 격자 + 회원별 고정 흔들림(비밀값 섞음)
 create or replace function public._approx(lat float8, lng float8, uid uuid) returns jsonb
-language sql immutable as $$
+language sql stable security definer set search_path = public as $$
+  with k as (select md5(public._location_salt() || ':' || uid::text) as h)
   select jsonb_build_object(
-    'lat', round(lat / 0.003) * 0.003 + ((('x' || substr(md5(uid::text), 1, 2))::bit(8)::int) / 255.0 - 0.5) * 0.0024,
-    'lng', round(lng / 0.003) * 0.003 + ((('x' || substr(md5(uid::text), 3, 2))::bit(8)::int) / 255.0 - 0.5) * 0.0024)
+    'lat', round(lat / 0.003) * 0.003 + ((('x' || substr(k.h, 1, 2))::bit(8)::int) / 255.0 - 0.5) * 0.0024,
+    'lng', round(lng / 0.003) * 0.003 + ((('x' || substr(k.h, 3, 2))::bit(8)::int) / 255.0 - 0.5) * 0.0024)
+  from k
+$$;
+
+-- 다른 회원에게 보여 줄 거리: 상대의 흐린 좌표 기준, 1km 단위 올림 (최소 1)
+create or replace function public._fuzzy_km(vlat float8, vlng float8, lat float8, lng float8, uid uuid) returns int
+language sql stable security definer set search_path = public as $$
+  with a as (select public._approx(lat, lng, uid) as j)
+  select greatest(1, ceil(public._haversine(vlat, vlng, (a.j->>'lat')::float8, (a.j->>'lng')::float8)))::int
+  from a
 $$;
 
 create or replace function public._is_blocked(a uuid, b uuid) returns boolean
@@ -309,7 +333,7 @@ language sql stable as $$
   || case when loc.user_id is null then '{}'::jsonb
           else public._approx(loc.lat, loc.lng, p.id)
                || case when vlat is null then '{}'::jsonb
-                       else jsonb_build_object('distanceKm', round(public._haversine(vlat, vlng, loc.lat, loc.lng)::numeric, 1)) end
+                       else jsonb_build_object('distanceKm', public._fuzzy_km(vlat, vlng, loc.lat, loc.lng, p.id)) end
      end
 $$;
 
