@@ -3,12 +3,13 @@
   const $app = document.getElementById('app');
   const $modal = document.getElementById('modal');
   const $modalBody = document.getElementById('modalBody');
-  const state = { me: null, config: null, live: false, poller: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null };
+  const state = { me: null, config: null, live: false, poller: null, nearby: null, filter: { radius: 3, gender: null, minTotal: null, days: [], matchOnly: false }, chatRoomId: null,
+    posts: null, postFilter: { lifts: [], today: false, evening: false, eligible: false, verified: false } };
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // Lucide 선형 아이콘 (ISC 라이선스). 이모지 대신 이것만 쓴다 — 디자인 시스템 5장
-  const ICONS = {"map-pin": "<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\" /> <circle cx=\"12\" cy=\"10\" r=\"3\" />", "mail": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7\" />", "message-circle": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\" />", "user": "<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\" /> <circle cx=\"12\" cy=\"7\" r=\"4\" />", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\" /> <path d=\"M7 11V7a5 5 0 0 1 10 0v4\" />", "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\" /> <path d=\"m9 12 2 2 4-4\" />", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <path d=\"m21 21-4.3-4.3\" />", "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />", "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />", "bell": "<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9\" /> <path d=\"M10.3 21a1.94 1.94 0 0 0 3.4 0\" />"};
+  const ICONS = {"map-pin": "<path d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\" /> <circle cx=\"12\" cy=\"10\" r=\"3\" />", "mail": "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\" /> <path d=\"m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7\" />", "message-circle": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\" />", "user": "<path d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\" /> <circle cx=\"12\" cy=\"7\" r=\"4\" />", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\" /> <path d=\"M7 11V7a5 5 0 0 1 10 0v4\" />", "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\" /> <path d=\"m9 12 2 2 4-4\" />", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\" /> <path d=\"m21 21-4.3-4.3\" />", "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />", "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />", "bell": "<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9\" /> <path d=\"M10.3 21a1.94 1.94 0 0 0 3.4 0\" />", "check": "<path d=\"M20 6 9 17l-5-5\" />", "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"m9 12 2 2 4-4\" />", "circle-alert": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\" /> <line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\" />", "camera": "<path d=\"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z\" /> <circle cx=\"12\" cy=\"13\" r=\"3\" />", "video": "<path d=\"m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5\" /> <rect x=\"2\" y=\"6\" width=\"14\" height=\"12\" rx=\"2\" />", "arrow-left": "<path d=\"m12 19-7-7 7-7\" /> <path d=\"M19 12H5\" />", "ellipsis-vertical": "<circle cx=\"12\" cy=\"12\" r=\"1\" /> <circle cx=\"12\" cy=\"5\" r=\"1\" /> <circle cx=\"12\" cy=\"19\" r=\"1\" />", "chevron-left": "<path d=\"m15 18-6-6 6-6\" />", "calendar": "<path d=\"M8 2v4\" /> <path d=\"M16 2v4\" /> <rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\" /> <path d=\"M3 10h18\" />"};
   const ic = (name, size = 20) => `<svg class="i" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content; };
 
@@ -46,7 +47,7 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
   function setChrome({ tab = null, bars = true, full = false } = {}) {
-    document.getElementById('topbar').classList.toggle('hidden', !bars);
+    document.getElementById('topbar').classList.toggle('hidden', !bars || tab === 'chat');
     document.getElementById('tabbar').classList.toggle('hidden', !bars || tab === 'chat');
     $app.classList.toggle('full', full);
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
@@ -63,7 +64,11 @@
       noteNew: () => { toast('새 쪽지가 도착했어요'); refreshBadges(); if (location.hash.startsWith('#/notes')) route(); },
       noteAccepted: () => { toast('쪽지가 수락되었어요. 채팅을 시작해 보세요.'); refreshBadges(); },
       message: (msg) => {
-        if (state.chatRoomId === msg.roomId) { appendMessage(msg); if (msg.senderId !== state.me.id) Backend.markRead(msg.roomId); }
+        if (state.chatRoomId === msg.roomId) {
+          appendMessage(msg);
+          if (msg.senderId !== state.me.id) Backend.markRead(msg.roomId);
+          if (msg.kind === 'system') refreshAppt();
+        }
         else if (msg.senderId !== state.me.id) { refreshBadges(); if (location.hash === '#/chats') route(); }
       },
       read: (roomId) => { if (state.chatRoomId === roomId) markAllRead(); },
@@ -82,8 +87,12 @@
     if (state.chatRoomId) {
       try {
         const data = await Backend.room(state.chatRoomId);
-        data.messages.forEach((m) => { if (!renderedIds.has(m.id)) appendMessage(m); });
-        if (data.messages.some((m) => m.senderId === state.me.id) && data.messages.filter((m) => m.senderId === state.me.id).every((m) => m.readAt)) markAllRead();
+        const fresh = data.messages.filter((m) => !renderedIds.has(m.id));
+        fresh.forEach(appendMessage);
+        if (JSON.stringify(data.room.appointment) !== JSON.stringify(state.chatRoom?.appointment)) renderAppt(data.room.appointment);
+        state.chatRoom = data.room;
+        const mineMsgs = data.messages.filter((m) => m.senderId === state.me.id && m.kind !== 'system');
+        if (mineMsgs.length && mineMsgs.every((m) => m.readAt)) markAllRead();
       } catch {}
     } else if (location.hash === '#/chats') route();
   }
@@ -101,6 +110,7 @@
       const b = await Backend.badges();
       document.getElementById('badgeNotes').textContent = b.notes || '';
       document.getElementById('badgeChats').textContent = b.chats || '';
+      document.getElementById('badgeNoti').textContent = b.notes || '';
     } catch {}
   }
 
@@ -121,6 +131,10 @@
     [/^#\/admin$/, viewAdmin, { noVerify: true }],
     [/^#\/verify$/, viewVerify, { noVerify: true }],
     [/^#\/me$/, viewMe, { noVerify: true }],
+    [/^#\/lifts(?:\/(bench|squat|deadlift))?$/, viewLifts, { noVerify: true }],
+    [/^#\/workout$/, viewWorkout, { noVerify: true }],
+    [/^#\/posts\/new$/, viewPostNew],
+    [/^#\/posts\/mine$/, viewMyPosts],
     [/^#\/notes$/, viewNotes],
     [/^#\/chats$/, viewChats],
     [/^#\/chat\/(\d+)$/, viewChat],
@@ -130,6 +144,7 @@
   async function route() {
     const hash = location.hash || '#/';
     closeModal();
+    if (state.chatRoomId) Backend.leaveTyping(state.chatRoomId);
     state.chatRoomId = null;
     const match = routes.find(([re]) => re.test(hash)) || routes[routes.length - 1];
     const [re, fn, opts = {}] = match;
@@ -290,7 +305,7 @@
     $app.innerHTML = '';
     $app.append(h(`
       <div class="${loggedIn ? '' : 'auth-wrap policy-page'}"><div class="card policy">
-        <a class="link small" href="javascript:history.back()">← 뒤로</a>
+        <a class="back-link small" href="javascript:history.back()">${ic('chevron-left', 16)}뒤로</a>
         ${Policies.docs[doc].render(state.config.service)}
       </div></div>`));
     window.scrollTo(0, 0);
@@ -305,7 +320,7 @@
       <div class="auth-wrap"><div class="auth-card">
         <div class="auth-hero">
           <div class="logo">${ic('user', 32)}</div>
-          <h1>${isNew ? '짐짝에 오신 걸 환영해요!' : '약관이 변경되었어요'}</h1>
+          <h1>${isNew ? '짐짝에 오신 걸 환영해요' : '약관이 변경되었어요'}</h1>
           <div class="muted">${isNew ? '닉네임을 정하고 약관에 동의해 주세요' : '계속 이용하려면 변경된 약관에 동의해 주세요'}</div>
         </div>
         <form class="card stack" id="welcomeForm">
@@ -426,15 +441,23 @@
     setChrome({ tab: 'home', full: true });
     const { days } = state.config;
     const f = state.filter;
+    const pf = state.postFilter;
+    const tab = sessionStorageGet('homeTab') || 'posts';
+    const gen = (state.homeGen = (state.homeGen || 0) + 1); // 탭 · 반경을 바꾸면 늦게 도착한 이전 응답은 버린다
+    const liftChip = (l) => `<span class="chip ${pf.lifts.includes(l) ? 'on' : ''}" data-lift="${l}">${LIFT[l]}</span>`;
+    const flagChip = (k, label) => `<span class="chip ${pf[k] ? 'on' : ''}" data-flag="${k}">${label}</span>`;
     $app.innerHTML = '';
     $app.append(h(`
       <div class="home">
         <div class="home-controls stack">
+          <h1 class="home-title">오늘 같이 운동할 메이트</h1>
           ${!state.me.profileComplete ? '<a href="#/me" class="banner">성별·나이·구력·운동 요일을 채우면 메이트들이 나를 알아볼 수 있어요. <b class="link">작성하기</b></a>' : ''}
+          <div class="tabs" id="homeTabs"><button data-t="posts" class="${tab === 'posts' ? 'on' : ''}">구인 글</button><button data-t="mates" class="${tab === 'mates' ? 'on' : ''}">메이트</button></div>
           <div class="row">
             <select id="radiusSel" class="sm-select">
               ${[1, 3, 5, 10].map((r) => `<option value="${r}" ${r === f.radius ? 'selected' : ''}>반경 ${r}km</option>`).join('')}
             </select>
+            ${tab === 'mates' ? `
             <select id="genderSel" class="sm-select">
               <option value="">성별 전체</option>
               <option value="male" ${f.gender === 'male' ? 'selected' : ''}>남성</option>
@@ -443,37 +466,83 @@
             <select id="totalSel" class="sm-select">
               <option value="">3대 전체</option>
               ${[200, 300, 400, 500, 600].map((t) => `<option value="${t}" ${f.minTotal === t ? 'selected' : ''}>3대 ${t}+</option>`).join('')}
-            </select>
+            </select>` : `<span class="spacer"></span><a class="btn sm primary" href="#/posts/new">${ic('plus', 16)}구인 글 쓰기</a>`}
           </div>
+          ${tab === 'mates' ? `
           <div class="chips" id="filterChips">
             <span class="chip ${f.matchOnly ? 'on' : ''}" data-match>조건 맞는 사람만</span>
             ${days.map((d) => `<span class="chip ${f.days.includes(d) ? 'on' : ''}" data-day="${esc(d)}">${esc(d)}</span>`).join('')}
-          </div>
+          </div>` : `
+          <div class="chips" id="postChips">
+            ${['bench', 'squat', 'deadlift'].map(liftChip).join('')}
+            ${flagChip('eligible', '내 조건 충족')}${flagChip('today', '오늘')}${flagChip('evening', '저녁 7–9시')}${flagChip('verified', '1RM 인증')}
+          </div>`}
         </div>
         <div class="home-list" id="mateList"><div class="empty">불러오는 중...</div></div>
       </div>`));
 
-    document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(); });
-    document.getElementById('genderSel').addEventListener('change', (e) => { f.gender = e.target.value || null; render(); });
-    document.getElementById('totalSel').addEventListener('change', (e) => { f.minTotal = Number(e.target.value) || null; render(); });
-    document.getElementById('filterChips').addEventListener('click', (e) => {
-      const c = e.target.closest('.chip'); if (!c) return;
-      if (c.hasAttribute('data-match')) f.matchOnly = !f.matchOnly;
-      else f.days = f.days.includes(c.dataset.day) ? f.days.filter((d) => d !== c.dataset.day) : [...f.days, c.dataset.day];
-      c.classList.toggle('on');
-      render();
+    document.getElementById('homeTabs').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b || b.dataset.t === tab) return;
+      sessionStorageSet('homeTab', b.dataset.t); viewHome().catch((err) => toast(err.message));
     });
+    let loadSeq = 0;
+    document.getElementById('radiusSel').addEventListener('change', (e) => { f.radius = Number(e.target.value); load(++loadSeq); });
+    if (tab === 'posts') {
+      document.getElementById('postChips').addEventListener('click', (e) => {
+        const c = e.target.closest('.chip'); if (!c) return;
+        if (c.dataset.lift) pf.lifts = pf.lifts.includes(c.dataset.lift) ? pf.lifts.filter((l) => l !== c.dataset.lift) : [...pf.lifts, c.dataset.lift];
+        else pf[c.dataset.flag] = !pf[c.dataset.flag];
+        c.classList.toggle('on');
+        renderPosts();
+      });
+    } else {
+      document.getElementById('genderSel').addEventListener('change', (e) => { f.gender = e.target.value || null; render(); });
+      document.getElementById('totalSel').addEventListener('change', (e) => { f.minTotal = Number(e.target.value) || null; render(); });
+      document.getElementById('filterChips').addEventListener('click', (e) => {
+        const c = e.target.closest('.chip'); if (!c) return;
+        if (c.hasAttribute('data-match')) f.matchOnly = !f.matchOnly;
+        else f.days = f.days.includes(c.dataset.day) ? f.days.filter((d) => d !== c.dataset.day) : [...f.days, c.dataset.day];
+        c.classList.toggle('on');
+        render();
+      });
+    }
 
-    async function load() {
+    async function load(seq = loadSeq) {
+      let data;
       try {
-        state.nearby = await Backend.nearby(f.radius);
-        state.nearby.users.forEach((u) => decorate(u));
+        data = tab === 'posts' ? await Backend.nearbyPosts(f.radius) : await Backend.nearby(f.radius);
       } catch (e) {
         if (handleCodeError(e)) return;
         throw e;
       }
-      if (!document.getElementById('mateList')) return;
-      render();
+      if (seq !== loadSeq) return;
+      if (tab === 'posts') state.posts = data;
+      else { state.nearby = data; data.users.forEach((u) => decorate(u)); }
+      if (gen !== state.homeGen || !document.getElementById('mateList')) return;
+      if (tab === 'posts') renderPosts(); else render();
+    }
+
+    function renderPosts() {
+      const today = kstDate(new Date());
+      const posts = state.posts.posts.filter((p) =>
+        (!pf.lifts.length || pf.lifts.includes(p.lift))
+        && (!pf.today || (p.kind === 'flash' ? kstDate(new Date(p.meetAt)) === today : p.days.includes(DOW[new Date(`${today}T12:00:00+09:00`).getDay()])))
+        && (!pf.evening || (p.time >= '19:00' && p.time <= '21:00'))
+        && (!pf.eligible || p.eligibility === 'ok')
+        && (!pf.verified || p.author.verified));
+      const list = document.getElementById('mateList');
+      if (!posts.length) {
+        list.innerHTML = `<div class="empty"><span class="big">${ic('search', 32)}</span>반경 ${state.posts.radius}km 안에 조건에 맞는 구인 글이 없어요.<br>필터를 줄이거나 직접 글을 올려 보세요.
+          <div style="margin-top:16px"><a class="btn sm" href="#/posts/new">구인 글 쓰기</a></div></div>`;
+        return;
+      }
+      list.innerHTML = `<div class="small muted list-caption"><span>${esc(state.posts.region)} 근처 구인 글 <b>${posts.length}</b>개</span><span>가까운 순</span></div>`
+        + posts.map((p) => postRow(p)).join('');
+      list.querySelectorAll('.post-row').forEach((el) => el.addEventListener('click', () => {
+        const p = posts.find((x) => String(x.id) === el.dataset.id);
+        if (p.mine) location.hash = '#/posts/mine';
+        else showProfile(p.userId, p.id).catch((e) => toast(e.message));
+      }));
     }
 
     function render() {
@@ -548,34 +617,115 @@
     return lines;
   }
 
-  async function showProfile(id) {
+  // ------------------------------------------------------------ 구인 글 · 1RM helpers
+  const LIFT = { bench: '벤치', squat: '스쿼트', deadlift: '데드', etc: '기타' };
+  const LIFT_FULL = { bench: '벤치프레스', squat: '스쿼트', deadlift: '데드리프트', etc: '기타' };
+  const PART = { bench: '가슴', squat: '하체', deadlift: '등', etc: '자유' };
+  const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+  const LIFTS3 = ['bench', 'squat', 'deadlift'];
+  const plate = (kg) => Math.round(kg / 5) * 5; // 기본 작업 중량: 5kg 단위 (서버는 정수 kg 만 받음)
+  const epley = (w, r) => (r <= 1 ? Number(w) : Math.round(w * (1 + r / 30) * 2) / 2); // 추정 1RM, 0.5kg 단위
+  // 날짜 · 시간은 모두 한국 시간 기준
+  const kstDate = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const kstDow = (ymd) => DOW[new Date(`${ymd}T12:00:00+09:00`).getDay()];
+  function kstLabel(iso) {
+    const d = new Date(iso);
+    const t = d.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+    const day = kstDate(d);
+    if (day === kstDate(new Date())) return `오늘 ${t}`;
+    if (day === kstDate(new Date(Date.now() + 864e5))) return `내일 ${t}`;
+    const [, m, dd] = day.split('-').map(Number);
+    return `${m}월 ${dd}일(${kstDow(day)}) ${t}`;
+  }
+  const postWhen = (p) => (p.kind === 'fixed' ? `${p.days.join('·')} ${p.time}` : kstLabel(p.meetAt));
+  const timeWord = (t) => { const hr = Number(t.slice(0, 2)); return hr < 9 ? '새벽' : hr < 12 ? '오전' : hr < 17 ? '낮' : '저녁'; };
+  function postTitle(p) {
+    if (p.lift === 'etc') return p.kind === 'fixed' ? `${p.days.join('·')} 같이 운동할 고정 메이트 구해요` : '같이 운동하실 분 구해요';
+    if (p.kind === 'fixed') return `${p.days.join('·')} ${timeWord(p.time)} ${PART[p.lift]} 고정 메이트 구해요`;
+    return `${LIFT[p.lift]} ${p.workKg}kg 스팟 구해요`;
+  }
+  const normGym = (g) => (g || '').replace(/\s/g, '');
+  const sameGym = (g) => !!(g && state.me.gymName && normGym(g) === normGym(state.me.gymName));
+  const condText = (p) => (p.lift === 'etc' || !p.min1rm ? '조건 없음' : `${LIFT[p.lift]} ${p.min1rm}kg 이상${p.requireVerified ? '(영상 인증)' : ''}`);
+  const liftVerified = (u, l) => u.verified?.[l] != null && u.verified[l] >= (u[l] ?? 0);
+  const liftStatus = (u, l) => (u[l] == null ? '미입력' : liftVerified(u, l) ? '영상 인증' : '자기 신고');
+  const isVerifiedUser = (u) => LIFTS3.some((l) => u.verified?.[l] != null);
+  const trustLine = (t) => `함께한 운동 ${t.together}회 · 노쇼 ${t.noshow}회${t.lateCancel ? ` · 늦은 취소 ${t.lateCancel}회` : ''}`;
+  // 서버가 계산한 요청 가능 여부(eligibility) → 안내 문구
+  function eligInfo(p) {
+    const L = LIFT[p.lift]; const mine = state.me[p.lift];
+    return {
+      ok: { ok: true, text: p.lift === 'etc' || !p.min1rm ? '조건 없음 · 누구나 요청할 수 있어요' : `조건 충족 · 내 ${L} ${mine}kg` },
+      own: { ok: false, text: '내가 올린 글' },
+      closed: { ok: false, text: '마감된 글' },
+      gender: { ok: false, text: '동성만 요청할 수 있는 글' },
+      no_record: { ok: false, text: `내 정보에 ${L} 1RM을 입력하면 요청할 수 있어요`, fix: '#/me' },
+      below: { ok: false, text: `조건 미달 · 내 ${L} ${mine}kg` },
+      need_video: { ok: false, text: `영상 인증 필요 · 내 ${L} ${mine}kg ${liftStatus(state.me, p.lift)}`, fix: `#/lifts/${p.lift}` },
+    }[p.eligibility] || { ok: false, text: '' };
+  }
+  function postRow(p) {
+    const e = eligInfo(p);
+    return `
+      <div class="post-row" data-id="${p.id}">
+        ${avatar(p.author.photo)}
+        <div class="meta">
+          <div class="row"><span class="name">${esc(p.author.nickname)}</span>${p.author.verified ? '<span class="tag">1RM 인증</span>' : ''}
+            <span class="spacer"></span><span class="small muted nowrap">${p.mine ? '내 글' : distLabel(p.author.distanceKm)}</span></div>
+          <div class="post-title">${esc(postTitle(p))}</div>
+          <div class="small muted post-meta">${esc([postWhen(p), PART[p.lift], condText(p), p.kind === 'fixed' ? '고정' : '번개', p.sameGender ? '동성만' : ''].filter(Boolean).join(' · '))}</div>
+          <div class="small muted ellipsis">${esc(sameGym(p.gymName) && !p.mine ? `${p.gymName} · 같은 헬스장` : p.gymName)}${p.memo ? ` · ${esc(p.memo)}` : ''}</div>
+          <div class="elig ${e.ok || p.mine ? 'ok' : ''}">${ic(e.ok || p.mine ? 'circle-check' : 'circle-alert', 16)}<span>${esc(p.mine ? `내 글 · 요청 ${p.applicants}명` : e.text)}</span>
+            ${!p.mine && p.requested ? '<span class="muted">· 요청 보냄</span>' : ''}${!p.mine && p.applicants ? `<span class="muted">· 요청 ${p.applicants}명</span>` : ''}</div>
+        </div>
+      </div>`;
+  }
+
+  async function showProfile(id, postId = null) {
     const u = decorate(await Backend.profile(id));
-    let action;
-    if (u.roomId) action = `<a class="btn primary block" href="#/chat/${u.roomId}">채팅방으로 이동</a>`;
-    else if (u.pendingNote) action = `<button class="btn block" disabled>쪽지를 보냈어요 · 답장을 기다리는 중</button>`;
-    else action = `
+    const posts = u.posts || [];
+    let pick = posts.some((p) => p.id === postId) ? postId : (posts.find((p) => p.eligibility === 'ok') || posts[0])?.id ?? null;
+    const defaultMsg = (p) => (p
+      ? `안녕하세요. ${postWhen(p)} ${p.lift === 'etc' ? '같이 운동하고 싶어요.' : `${LIFT_FULL[p.lift]} 같이 하고 싶어요.${state.me[p.lift] != null ? ` 제 ${LIFT[p.lift]} 1RM은 ${state.me[p.lift]}kg이에요.` : ''}`}`
+      : `안녕하세요. ${u.workoutDays.length ? `저도 ${u.workoutDays.join('·')}에 운동해요. ` : ''}같이 운동하실래요?`);
+    // 요청 버튼은 와이어프레임처럼 시트 아래에 고정 (폼은 본문에 두고 form 속성으로 연결)
+    let action = '';
+    let cta;
+    if (u.roomId) cta = `<a class="btn primary block" href="#/chat/${u.roomId}">채팅방으로 이동</a>`;
+    else if (u.pendingNote) cta = `<button class="btn block" disabled>요청을 보냈어요 · 답장을 기다리는 중</button>`;
+    else {
+      cta = '<button class="btn primary block" type="submit" form="noteForm">메이트 요청하기</button>';
+      action = `
       ${u.iMeetTheirPrefs === false ? '<div class="banner small">상대가 원하는 메이트 조건과 맞지 않아요. 그래도 쪽지는 보낼 수 있어요.</div>' : ''}
       <form id="noteForm" class="stack">
-        <label class="field"><span>쪽지 보내기</span>
-          <textarea name="content" maxlength="300" required placeholder="안녕하세요! ${u.workoutDays.length ? `저도 ${esc(u.workoutDays.join('·'))}에 운동해요.` : ''} 같이 운동하실래요?"></textarea></label>
-        <button class="btn primary block" type="submit">쪽지 보내기</button>
-        <div class="small muted">상대방이 쪽지를 수락하면 1:1 채팅이 열려요.<br>처음 만날 땐 헬스장 등 공개된 장소에서 만나고, 돈이나 개인정보를 요구하면 신고해 주세요.</div>
+        ${posts.length ? `<div class="field"><span class="field-label">이 사람의 구인 글 <span class="muted" style="font-weight:400">· 어떤 운동으로 만날지 골라 주세요</span></span>
+          <div class="stack report-reasons" id="postPick">
+            ${posts.map((p) => `<label class="row"><input type="radio" name="post" value="${p.id}" ${p.id === pick ? 'checked' : ''}>
+              <span style="flex:1;min-width:0"><b>${esc(postTitle(p))}</b><br><span class="small muted">${esc(postWhen(p))} · ${esc(condText(p))}</span></span></label>`).join('')}
+            <label class="row"><input type="radio" name="post" value="" ${pick == null ? 'checked' : ''}> <span>글 없이 쪽지 보내기</span></label>
+          </div></div>` : ''}
+        <div id="eligBox"></div>
+        <label class="field"><span>${posts.length ? '첫 메시지' : '쪽지 보내기'}</span>
+          <textarea name="content" maxlength="300" required></textarea></label>
+        <div class="small muted">상대방이 수락하면 1:1 채팅이 열려요. 구인 글로 요청하면 운동 약속도 함께 만들어져요.</div>
       </form>`;
+    }
     const prefs = prefsLines(u.prefs);
+    const t = u.trust || { together: 0, noshow: 0, lateCancel: 0, tags: [], reviews: [] };
     openModal(`
+      <button type="button" class="icon-btn sheet-close" data-close aria-label="닫기">${ic('x', 24)}</button>
       <div class="profile-head">
         ${avatar(u.photo, 'lg')}
         <div>
-          <div class="name">${esc(u.nickname)}</div>
+          <div class="name">${esc(u.nickname)} ${isVerifiedUser(u) ? '<span class="tag">1RM 인증</span>' : ''}</div>
           <div class="muted small">${esc(personLine(u))}</div>
           <div class="small" style="margin-top:4px">${esc(u.region || '')} ${u.distanceKm != null ? `· ${distLabel(u.distanceKm)}` : ''}</div>
+          <div class="small muted">${esc(trustLine(t))}</div>
         </div>
       </div>
       <div class="stack">
         <div class="lifts">
-          <div><span>벤치프레스</span><b>${u.bench ?? '-'}</b></div>
-          <div><span>스쿼트</span><b>${u.squat ?? '-'}</b></div>
-          <div><span>데드리프트</span><b>${u.deadlift ?? '-'}</b></div>
+          ${LIFTS3.map((l) => `<div><span>${LIFT_FULL[l]}</span><b>${u[l] ?? '-'}</b><span class="${liftVerified(u, l) ? 'lift-ok' : ''}">${liftStatus(u, l)}</span></div>`).join('')}
           <div class="total"><span>3대 합계</span><b>${u.total ?? '-'}</b></div>
         </div>
         ${matchTags(u)}
@@ -585,30 +735,52 @@
           <dt>시간대</dt><dd>${esc(u.workoutTimes.join(' · ') || '-')}</dd>
         </dl>
         ${u.bio ? `<div class="note-body">${esc(u.bio)}</div>` : ''}
+        ${t.tags.length || t.reviews.length ? `<div class="pref-box">
+          <div class="small" style="font-weight:600;margin-bottom:6px">함께 운동한 메이트 후기</div>
+          ${t.tags.length ? `<div class="chips">${t.tags.map(([tag, n]) => `<span class="tag">${esc(tag)} ${n}</span>`).join('')}</div>` : ''}
+          ${t.reviews.map((r) => `<div class="small review-line">"${esc(r)}"</div>`).join('')}
+        </div>` : ''}
         <div class="pref-box">
           <div class="small" style="font-weight:700;margin-bottom:6px">이런 헬스메이트를 찾아요</div>
           ${prefs.length || u.prefs.note ? `
             ${prefs.length ? `<div class="chips">${prefs.map((p) => `<span class="tag">${esc(p)}</span>`).join('')}</div>` : ''}
             ${u.prefs.note ? `<div class="small" style="margin-top:6px;white-space:pre-wrap">${esc(u.prefs.note)}</div>` : ''}`
-          : '<div class="small muted">특별한 조건 없음 · 누구나 환영!</div>'}
+          : '<div class="small muted">특별한 조건 없음 · 누구나 환영</div>'}
         </div>
         ${action}
-        <button class="btn block" data-close>닫기</button>
         <div class="safety-actions">
           <button type="button" class="link small muted" id="pReport">신고하기</button>
           <button type="button" class="link small muted" id="pBlock">차단하기</button>
         </div>
+      </div>
+      <div class="sheet-footer">
+        <div class="safety-note small muted">${ic('shield-check', 16)}<span>첫 만남은 헬스장 안에서 해요</span></div>
+        ${cta}
       </div>`);
     document.getElementById('pReport').addEventListener('click', () => openReport(u));
     document.getElementById('pBlock').addEventListener('click', () => blockUser(u));
     const form = document.getElementById('noteForm');
-    if (form) form.addEventListener('submit', async (e) => {
+    if (!form) return;
+    const btn = document.querySelector('button[form=noteForm]');
+    // 고른 글에 따라 요청 가능 여부와 기본 메시지를 바꾼다 (메시지를 직접 고쳤으면 그대로 둔다)
+    let lastDefault = '';
+    const sync = () => {
+      const p = posts.find((x) => x.id === pick) || null;
+      const e = p ? eligInfo(p) : { ok: true };
+      document.getElementById('eligBox').innerHTML = p && !e.ok ? `<div class="banner small">${ic('circle-alert', 16)}<span>${esc(e.text)}${e.fix ? ` <a class="link" href="${e.fix}">${e.fix.startsWith('#/lifts') ? '영상 인증하러 가기' : '입력하러 가기'}</a>` : ''}</span></div>` : '';
+      btn.disabled = !e.ok;
+      if (!form.content.value || form.content.value === lastDefault) form.content.value = lastDefault = defaultMsg(p);
+    };
+    document.getElementById('postPick')?.addEventListener('change', (e) => { pick = e.target.value ? Number(e.target.value) : null; sync(); });
+    sync();
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = form.querySelector('button'); btn.disabled = true;
+      btn.disabled = true;
       try {
-        await Backend.sendNote(u.id, form.content.value);
-        toast('쪽지를 보냈어요! 상대방이 수락하면 알려드릴게요');
+        await Backend.sendNote(u.id, form.content.value, pick);
+        toast('요청을 보냈어요. 상대방이 수락하면 알려드릴게요.');
         closeModal();
+        if (location.hash === '#/' || location.hash === '') route();
       } catch (err) {
         if (err.roomId) { location.hash = `#/chat/${err.roomId}`; return; }
         toast(err.message); btn.disabled = false;
@@ -616,12 +788,35 @@
     });
   }
 
+  // ------------------------------------------------------------ 알림 (받은 요청 · 수락 · 영상 인증 결과를 한곳에)
+  async function openNotifications() {
+    const [inbox, sent, lifts] = await Promise.all([Backend.notes('inbox'), Backend.notes('sent'), Backend.myLifts()]);
+    refreshBadges();
+    const items = [
+      ...inbox.filter((n) => n.status === 'pending').map((n) => ({ at: n.createdAt, href: '#/notes',
+        text: `${n.other.nickname}님이 ${n.post ? `"${postTitle(n.post)}" 글에` : ''} 메이트 요청을 보냈어요` })),
+      ...sent.filter((n) => n.status === 'accepted' && n.roomId).map((n) => ({ at: n.createdAt, href: `#/chat/${n.roomId}`,
+        text: `${n.other.nickname}님이 요청을 수락했어요. 채팅에서 약속을 확인해 보세요` })),
+      ...sent.filter((n) => n.status === 'declined').map((n) => ({ at: n.createdAt, href: '#/notes',
+        text: `${n.other.nickname}님의 ${n.post ? '구인 글이' : '메이트 모집이'} 마감됐어요` })),
+      ...Object.values(lifts).filter((v) => v.status !== 'code').map((v) => ({ at: v.reviewedAt || v.submittedAt, href: `#/lifts/${v.lift}`,
+        text: `${LIFT_FULL[v.lift]} ${v.weightKg}kg 영상 ${{ pending: '을 검토하고 있어요', approved: ' 인증이 통과됐어요', rejected: ' 인증이 반려됐어요' }[v.status]}` })),
+    ].sort((x, y) => new Date(y.at) - new Date(x.at)).slice(0, 20);
+    openModal(`
+      <button type="button" class="icon-btn sheet-close" data-close aria-label="닫기">${ic('x', 24)}</button>
+      <h2>알림</h2>
+      ${items.length ? items.map((it) => `<a class="list-item noti-item" href="${it.href}"><div class="meta"><div>${esc(it.text)}</div><div class="sub">${esc(timeLabel(it.at))}</div></div></a>`).join('')
+        : `<div class="empty"><span class="big">${ic('bell', 32)}</span>새 알림이 없어요.</div>`}`);
+  }
+  document.getElementById('notiBtn').addEventListener('click', () => { if (state.me) openNotifications().catch((e) => toast(e.message)); });
+
   // ------------------------------------------------------------ views: 쪽지함
   async function viewNotes(box = sessionStorageGet('notesBox') || 'inbox') {
     setChrome({ tab: 'notes' });
     const notes = await Backend.notes(box);
     refreshBadges();
-    const statusLabel = { pending: '대기 중', accepted: '수락됨', declined: '거절됨' };
+    // 보낸 요청이 거절되면 상대에게는 '마감됨'으로 부드럽게 보여 준다
+    const statusLabel = { pending: '대기 중', accepted: '수락됨', declined: box === 'sent' ? '마감됨' : '거절함' };
     $app.innerHTML = '';
     $app.append(h(`
       <h1>쪽지함</h1>
@@ -638,6 +833,8 @@
               </div>
               <span class="status ${n.status}">${statusLabel[n.status]}</span>
             </div>
+            ${n.post ? `<div class="small note-post">${ic('calendar', 16)}<span><b>${esc(postTitle(n.post))}</b> · ${esc(postWhen(n.post))}
+              ${box === 'inbox' && n.post.lift !== 'etc' ? `<br><span class="muted">${LIFT[n.post.lift]} ${n.otherLiftKg ?? '-'}kg ${n.otherLiftVerifiedKg != null && n.otherLiftVerifiedKg >= (n.otherLiftKg ?? 0) ? '영상 인증' : '자기 신고'}${n.post.min1rm ? ` · 조건 ${n.post.min1rm}kg 이상` : ''}</span>` : ''}</span></div>` : ''}
             <div class="note-body">${esc(n.content)}</div>
             ${box === 'inbox' && n.status === 'pending' ? `
               <div class="row"><button class="btn" data-act="decline">거절</button><span class="spacer"></span><button class="btn primary" data-act="accept">수락하고 채팅 시작</button></div>` : ''}
@@ -647,17 +844,20 @@
     $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => { sessionStorageSet('notesBox', b.dataset.box); viewNotes(b.dataset.box); }));
     $app.querySelectorAll('.profile-link').forEach((el) => el.addEventListener('click', () => showProfile(el.dataset.uid).catch((e) => toast(e.message))));
     $app.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
+      if (b.disabled) return;
       const id = Number(b.closest('[data-id]').dataset.id);
+      if (b.dataset.act === 'decline' && !confirm('이 요청을 거절할까요?\n상대에게는 \'마감됨\'으로 보여요.')) return;
+      b.disabled = true;
       try {
         if (b.dataset.act === 'accept') {
           const roomId = await Backend.acceptNote(id);
           location.hash = `#/chat/${roomId}`;
         } else {
-          if (!confirm('이 쪽지를 거절할까요?')) return;
           await Backend.declineNote(id);
+          toast('거절했어요');
           viewNotes(box);
         }
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(e.message); b.disabled = false; }
     }));
   }
   function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
@@ -711,7 +911,7 @@
     const list = await Backend.blocks();
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/me">← 내 정보</a>
+      <a class="back-link small" href="#/me">${ic('chevron-left', 16)}내 정보</a>
       <h1>차단 목록</h1>
       ${list.length ? list.map((u) => `
         <div class="list-item">
@@ -721,7 +921,7 @@
         </div>`).join('') : '<div class="empty">차단한 사용자가 없어요.</div>'}`));
     $app.querySelectorAll('[data-unblock]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 차단을 해제할까요?`)) return;
-      await Backend.unblock(b.dataset.unblock);
+      try { await Backend.unblock(b.dataset.unblock); } catch (e) { toast(e.message); return; }
       toast('차단을 해제했어요'); viewBlocks();
     }));
   }
@@ -730,14 +930,15 @@
   async function viewAdmin(tab = 'pending') {
     setChrome({ tab: 'me' });
     if (!state.me.isAdmin) { location.hash = '#/me'; return; }
-    const tabs = [['pending', '대기 중'], ['actioned', '조치 완료'], ['dismissed', '기각'], ['suspended', '정지 회원']];
-    const data = tab === 'suspended' ? await Backend.adminSuspended() : await Backend.adminReports(tab);
+    const tabs = [['pending', '대기 중'], ['actioned', '조치 완료'], ['dismissed', '기각'], ['suspended', '정지 회원'], ['lifts', '영상 인증']];
+    const data = tab === 'suspended' ? await Backend.adminSuspended() : tab === 'lifts' ? await Backend.adminLifts('pending') : await Backend.adminReports(tab);
     $app.innerHTML = '';
     $app.append(h(`
-      <a class="link small" href="#/me">← 내 정보</a>
+      <a class="back-link small" href="#/me">${ic('chevron-left', 16)}내 정보</a>
       <h1>신고 관리</h1>
       <div class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <div id="adminList">${tab === 'suspended' ? suspendedHtml(data) : reportsHtml(data, tab)}</div>`));
+      <div id="adminList">${tab === 'suspended' ? suspendedHtml(data) : tab === 'lifts' ? liftsHtml(data) : reportsHtml(data, tab)}</div>`));
+    if (tab === 'lifts') bindAdminLifts(data);
     $app.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => viewAdmin(b.dataset.tab)));
     $app.querySelectorAll('[data-resolve]').forEach((b) => b.addEventListener('click', async () => {
       const action = b.dataset.resolve;
@@ -746,12 +947,12 @@
         reason = prompt('정지 사유 (회원에게 표시돼요)', `운영정책 위반 (${b.dataset.reason})`);
         if (reason === null) return;
       } else if (!confirm('이 신고를 기각할까요?')) return;
-      await Backend.adminResolve(Number(b.dataset.id), action, reason);
+      try { await Backend.adminResolve(Number(b.dataset.id), action, reason); } catch (e) { toast(e.message); return; }
       toast(action === 'suspend' ? '이용 정지했어요' : '기각했어요'); viewAdmin(tab);
     }));
     $app.querySelectorAll('[data-unsuspend]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`${b.dataset.name}님의 정지를 해제할까요?`)) return;
-      await Backend.adminUnsuspend(b.dataset.unsuspend);
+      try { await Backend.adminUnsuspend(b.dataset.unsuspend); } catch (e) { toast(e.message); return; }
       toast('정지를 해제했어요'); viewAdmin(tab);
     }));
   }
@@ -778,6 +979,34 @@
             <button class="btn sm danger" data-resolve="suspend" data-id="${r.id}" data-reason="${esc(r.reason)}">이용 정지</button></div>` : ''}
         ${tab === 'pending' && r.target.deleted ? `<div class="row"><button class="btn sm" data-resolve="dismiss" data-id="${r.id}">처리 완료 (탈퇴 회원)</button></div>` : ''}
       </div>`).join('');
+  }
+  function liftsHtml(list) {
+    if (!list.length) return '<div class="empty">검토할 영상이 없어요.</div>';
+    return list.map((v) => `
+      <div class="card stack" style="margin-bottom:10px" data-lift-id="${v.id}">
+        <div class="row wrap"><b>${esc(v.user.nickname)}</b><span class="tag">${LIFT_FULL[v.lift]} ${v.weightKg}kg</span>
+          <span class="spacer"></span><span class="small muted">코드 <b>${esc(v.code)}</b></span></div>
+        <div class="small muted">자기 신고 기록 ${v.user.selfKg ?? '-'}kg · 코드 발급 ${esc(parseDate(v.codeIssuedAt).toLocaleString('ko-KR'))} · 제출 ${esc(parseDate(v.submittedAt).toLocaleString('ko-KR'))}</div>
+        <video controls playsinline preload="metadata" class="lift-video"></video>
+        <div class="small muted">확인할 것: 원판 무게가 보이는지, 코드 ${esc(v.code)}가 보이는지, 편집 없이 한 번에 찍었는지, 종목 기준을 지켰는지</div>
+        <div class="row"><button class="btn sm danger" data-review="reject">반려</button><span class="spacer"></span><button class="btn sm primary" data-review="approve">통과</button></div>
+      </div>`).join('');
+  }
+  function bindAdminLifts(list) {
+    list.forEach((v) => {
+      const card = $app.querySelector(`[data-lift-id="${v.id}"]`);
+      Backend.liftVideoUrl(v.videoPath).then((url) => { card.querySelector('video').src = url; }).catch((e) => toast(e.message));
+      card.querySelectorAll('[data-review]').forEach((b) => b.addEventListener('click', async () => {
+        const approve = b.dataset.review === 'approve';
+        let reason = '';
+        if (!approve) {
+          reason = prompt('반려 사유 (회원에게 표시돼요)', '인증 코드가 영상에서 읽히지 않아요. 코드를 카메라 가까이에 두고 다시 찍어 주세요.');
+          if (reason === null) return;
+        } else if (!confirm(`${v.user.nickname}님의 ${LIFT_FULL[v.lift]} ${v.weightKg}kg을 통과시킬까요?`)) return;
+        try { await Backend.adminReviewLift(v.id, approve, reason); toast(approve ? '통과시켰어요' : '반려했어요'); viewAdmin('lifts'); }
+        catch (e) { toast(e.message); }
+      }));
+    });
   }
   function suspendedHtml(list) {
     if (!list.length) return '<div class="empty">정지된 회원이 없어요.</div>';
@@ -821,27 +1050,31 @@
     $app.append(h(`
       <div class="chat">
         <div class="chat-head">
-          <a href="#/chats" class="btn sm" aria-label="뒤로">←</a>
+          <a href="#/chats" class="icon-btn" aria-label="채팅 목록으로">${ic('arrow-left', 24)}</a>
           ${avatar(other.photo)}
-          <div style="flex:1;min-width:0"><b>${esc(other.nickname)}</b><div class="small muted">${esc(other.region || '')}</div></div>
-          <button class="btn sm" id="chatMenu" aria-label="메뉴">⋯</button>
+          <div style="flex:1;min-width:0"><b>${esc(other.nickname)}</b>
+            <div class="small muted ellipsis">${other.total != null ? `3대 ${other.total}kg · 벤치 ${other.bench} · 스쿼트 ${other.squat} · 데드 ${other.deadlift}` : esc(other.region || '')}</div></div>
+          <button class="icon-btn" id="chatMenu" aria-label="신고 · 차단 메뉴">${ic('ellipsis-vertical', 24)}</button>
         </div>
+        <div id="apptBox"></div>
         ${safetyDismissed(roomId) ? '' : `
           <div class="safety-banner" id="safetyBanner">
-            ${ic('shield-check', 16)}<span><b>안전 수칙</b> 첫 만남은 헬스장 등 공개된 장소에서 · 금전 요구·외부 링크 주의 · 불쾌한 대화는 ⋯ 메뉴에서 신고해 주세요</span>
+            ${ic('shield-check', 16)}<span>첫 만남은 헬스장 안에서 해요. 돈을 요구하거나 운동과 관계없는 연락은 오른쪽 위 메뉴에서 신고할 수 있어요.</span>
             <button type="button" class="link small" id="safetyClose">닫기</button>
           </div>`}
         <div class="chat-msgs" id="msgs"></div>
         <div class="typing" id="typing"></div>
         ${data.room.canSend ? `
         <form class="chat-input" id="chatForm">
-          <textarea name="content" placeholder="메시지를 입력하세요" maxlength="1000" rows="1"></textarea>
+          <textarea name="content" placeholder="메시지 보내기" maxlength="1000" rows="1"></textarea>
           <button class="btn primary" type="submit">전송</button>
         </form>` : '<div class="chat-input cannot-send small muted">메시지를 보낼 수 없는 상대예요.</div>'}
       </div>`));
     state.chatRoomId = roomId;
+    state.chatRoom = data.room;
     lastDay = null;
     renderedIds.clear();
+    renderAppt(data.room.appointment);
     data.messages.forEach(appendMessage);
     if (!data.messages.length) document.getElementById('msgs').innerHTML = '<div class="day-sep">채팅방이 열렸어요. 인사를 건네 보세요.</div>';
     scrollBottom();
@@ -872,7 +1105,13 @@
       const content = ta.value.trim();
       if (!content) return;
       ta.value = ''; ta.style.height = '';
-      try { appendMessage(await Backend.sendMessage(roomId, content)); } catch (e) { toast(e.message); ta.value = content; }
+      try { appendMessage(await Backend.sendMessage(roomId, content)); } catch (e) { toast(e.message); ta.value = content; return; }
+      // 전화번호 · 메신저 아이디를 주고받으면 한 번 주의 안내 (내 화면에만 표시)
+      if (CONTACT_RE.test(content) && !safetyDismissed(`contact:${roomId}`)) {
+        document.getElementById('msgs').append(h(`<div class="sys-msg warn">개인 연락처는 신중하게 공유해 주세요. 약속을 앱 안에서 잡아야 노쇼 기록과 신고가 남아요.</div>`));
+        scrollBottom();
+        try { localStorage.setItem(`safety:contact:${roomId}`, '1'); } catch {}
+      }
     };
     form.addEventListener('submit', (e) => { e.preventDefault(); send(); ta.focus(); });
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
@@ -892,7 +1131,8 @@
     let html = '';
     if (day !== lastDay) { lastDay = day; html += `<div class="day-sep">${d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</div>`; }
     const mine = m.senderId === state.me.id;
-    html += `<div class="msg ${mine ? 'mine' : ''}"><div class="bubble">${esc(m.content)}</div>
+    if (m.kind === 'system') html += `<div class="sys-msg">${esc(m.content)}</div>`;
+    else html += `<div class="msg ${mine ? 'mine' : ''}"><div class="bubble">${esc(m.content)}</div>
       <div class="time">${mine && !m.readAt ? '<span class="unread">1</span>' : ''}${d.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}</div></div>`;
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     box.append(h(html));
@@ -901,8 +1141,517 @@
   }
   function scrollBottom() { const b = document.getElementById('msgs'); if (b) b.scrollTop = b.scrollHeight; }
 
+  // ------------------------------------------------------------ 채팅방: 운동 약속 카드
+  const CONTACT_RE = /01[016789][-\s.]?\d{3,4}[-\s.]?\d{4}|카톡|카카오\s*아이디|오픈\s*채팅|인스타|텔레그램|전화번호/;
+  const GOOD_TAGS = ['시간 약속을 잘 지켜요', '스팟이 정확해요', '고중량 보조에 익숙해요', '자세를 잘 봐줘요', '친절해요'];
+  const BAD_TAGS = ['약속 시간에 늦었어요', '스팟이 불안했어요', '운동과 관계없는 대화가 많았어요'];
+
+  async function refreshAppt() {
+    const roomId = state.chatRoomId;
+    if (!roomId) return;
+    try {
+      const data = await Backend.room(roomId);
+      if (state.chatRoomId === roomId) { state.chatRoom = data.room; renderAppt(data.room.appointment); }
+    } catch {}
+  }
+
+  function renderAppt(a) {
+    const box = document.getElementById('apptBox');
+    if (!box) return;
+    const canSend = state.chatRoom?.canSend;
+    const other = state.chatRoom?.other?.nickname || '상대';
+    const active = a && (a.status === 'pending' || a.status === 'confirmed');
+    if (!active && !(a && a.status === 'done' && a.canReview)) {
+      box.innerHTML = canSend ? `<div class="appt-empty small">
+        <span class="muted">${a?.status === 'done' ? `지난 운동 · ${esc(kstLabel(a.meetAt))}${a.myReview ? ' · 후기 남김' : ''}` : a?.status === 'cancelled' ? `약속이 취소됐어요${a.lateCancel ? ' (2시간 이내 취소)' : ''}` : '같이 운동할 시간을 정해 보세요'}</span>
+        <button class="btn sm" data-a="propose">${a ? '새 약속 잡기' : '운동 약속 잡기'}</button></div>` : '';
+      bindAppt(a);
+      return;
+    }
+    const label = { pending: '확정 대기', confirmed: '확정', done: '완료' }[a.status];
+    let body = '';
+    if (a.status === 'pending') {
+      body = a.proposedByMe
+        ? `<div class="small muted">${esc(other)}님이 확정하면 약속이 잡혀요.</div>
+           <div class="row"><button class="btn sm" data-a="propose">시간 바꾸기</button><button class="btn sm" data-a="cancel">약속 취소</button></div>`
+        : `<div class="row appt-btns"><button class="btn primary" data-a="confirm">약속 확정</button><button class="btn" data-a="propose">시간 변경</button></div>`;
+    } else if (a.status === 'confirmed') {
+      const state2 = a.myCheckin
+        ? `체크인 완료 · ${a.otherCheckin ? `${esc(other)}님도 도착했어요` : `${esc(other)}님이 도착하면 알려드려요`}`
+        : a.canCheckin ? '헬스장에 도착하면 체크인해 주세요.' : new Date(a.checkinOpensAt) > new Date() ? `체크인은 ${esc(kstLabel(a.checkinOpensAt))}부터 할 수 있어요.` : '체크인 시간이 지났어요.';
+      body = `<div class="small muted">${state2}</div>
+        <div class="row appt-btns">
+          ${a.canCheckin ? '<button class="btn primary" data-a="checkin">헬스장 도착 체크인</button>' : ''}
+          ${a.canReview ? '<button class="btn primary" data-a="review">운동 끝 · 후기 남기기</button>' : ''}
+          ${!(a.myCheckin && a.otherCheckin) && new Date(a.meetAt) > Date.now() ? '<button class="btn" data-a="cancel">약속 취소</button>' : ''}
+        </div>`;
+    } else {
+      body = `<div class="row appt-btns"><button class="btn primary" data-a="review">후기 남기기</button></div>`;
+    }
+    box.innerHTML = `
+      <div class="appt">
+        <div class="appt-head small"><span class="muted">운동 약속</span><span class="status ${a.status === 'confirmed' ? 'accepted' : 'pending'}">${label}</span></div>
+        <div class="appt-title">${esc(kstLabel(a.meetAt))} · ${esc(a.title)}</div>
+        ${a.place ? `<div class="small muted">${esc(a.place)}</div>` : ''}
+        ${body}
+      </div>`;
+    bindAppt(a);
+  }
+
+  function bindAppt(a) {
+    const box = document.getElementById('apptBox');
+    const run = (fn, msg) => async (e) => {
+      e.target.disabled = true;
+      try { renderAppt(await fn()); if (msg) toast(msg); } catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+    box.querySelector('[data-a=propose]')?.addEventListener('click', () => openPropose(a));
+    box.querySelector('[data-a=confirm]')?.addEventListener('click', run(() => Backend.confirmAppointment(a.id), '약속을 확정했어요'));
+    box.querySelector('[data-a=checkin]')?.addEventListener('click', run(() => Backend.checkinAppointment(a.id), '체크인했어요'));
+    box.querySelector('[data-a=review]')?.addEventListener('click', () => openReview(a));
+    box.querySelector('[data-a=cancel]')?.addEventListener('click', (e) => {
+      const late = a.status === 'confirmed' && new Date(a.meetAt) - Date.now() < 2 * 3600e3;
+      if (!confirm(late ? '약속 2시간 이내 취소는 \'늦은 취소\'로 기록되고 프로필에 보여요. 취소할까요?' : '약속을 취소할까요?')) return;
+      run(() => Backend.cancelAppointment(a.id), '약속을 취소했어요')(e);
+    });
+  }
+
+  function openPropose(a) {
+    const active = a && (a.status === 'pending' || a.status === 'confirmed');
+    const base = active ? new Date(a.meetAt) : new Date(Date.now() + 864e5);
+    const ymd = kstDate(base);
+    const dates = [...Array(14)].map((_, i) => kstDate(new Date(Date.now() + i * 864e5)));
+    const hm = base.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+    openModal(`
+      <h2>${active ? '약속 시간 바꾸기' : '운동 약속 잡기'}</h2>
+      <form id="proposeForm" class="stack">
+        <div class="grid2">
+          <label class="field"><span>날짜</span><select name="date">${dates.map((d, i) => `<option value="${d}" ${d === ymd ? 'selected' : ''}>${i === 0 ? '오늘' : i === 1 ? '내일' : `${Number(d.slice(5, 7))}월 ${Number(d.slice(8))}일`}(${kstDow(d)})</option>`).join('')}</select></label>
+          <label class="field"><span>시간</span><select name="time">${TIMES.map((t) => `<option ${t === roundTime(hm) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        </div>
+        <label class="field"><span>무엇을 할까요</span><input type="text" name="title" maxlength="40" value="${esc(active ? a.title : '같이 운동')}" required></label>
+        <label class="field"><span>장소</span><input type="text" name="place" maxlength="80" value="${esc(active ? a.place : state.me.gymName || '')}" placeholder="예) 바벨클럽 정자점 벤치 구역"></label>
+        <div class="small muted">${esc(state.chatRoom?.other?.nickname || '상대')}님이 확정하면 약속이 잡혀요.</div>
+        <button class="btn primary block" type="submit">${active ? '바꾸자고 제안하기' : '약속 제안하기'}</button>
+        <button class="btn block" type="button" data-close>취소</button>
+      </form>`);
+    const form = document.getElementById('proposeForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        const meetAt = new Date(`${form.date.value}T${form.time.value}:00+09:00`).toISOString();
+        renderAppt(await Backend.proposeAppointment(state.chatRoomId, meetAt, form.title.value, form.place.value));
+        closeModal(); toast('약속을 제안했어요');
+      } catch (err) { toast(err.message); btn.disabled = false; }
+    });
+  }
+  const TIMES = [...Array(36)].map((_, i) => `${String(6 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`); // 06:00~23:30
+  // 오늘 고를 수 있는 가장 이른 시간 칸 (지금 + 30분 이후). 없으면 null → 내일로
+  function firstSlotToday() {
+    const now = new Date(Date.now() + 30 * 60e3);
+    if (kstDate(now) !== kstDate(new Date())) return null;
+    const hm = now.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+    return TIMES.find((t) => t >= hm) || null;
+  }
+  const roundTime = (hm) => { const [hh, mm] = hm.split(':').map(Number); const t = `${String(hh).padStart(2, '0')}:${mm < 30 ? '00' : '30'}`; return TIMES.includes(t) ? t : '19:00'; };
+
+  function openReview(a) {
+    const other = state.chatRoom?.other?.nickname || '상대';
+    let good = null;
+    const tags = new Set();
+    openModal(`
+      <h2>${esc(other)}님과의 운동 어땠나요?</h2>
+      <div class="stack">
+        <div class="small muted" style="margin-top:-8px">후기는 상대 프로필에 작성자 이름 없이 보여요.</div>
+        <div class="grid2" id="rvGood"><button type="button" class="btn" data-g="1">좋았어요</button><button type="button" class="btn" data-g="0">아쉬웠어요</button></div>
+        <div class="chips" id="rvTags"></div>
+        <label class="field" id="rvTextWrap" hidden><span>한 줄 후기 (선택)</span><input type="text" id="rvText" maxlength="200" placeholder="예) 스팟이 정확해서 믿고 칠 수 있었어요"></label>
+        <button class="btn primary block" id="rvSubmit" disabled>후기 남기기</button>
+        ${a.canNoshow ? '<button type="button" class="link small muted" id="rvNoshow" style="align-self:center">상대가 오지 않았어요 (노쇼 신고)</button>' : ''}
+        <button class="btn block" type="button" data-close>나중에 하기</button>
+      </div>`);
+    const tagBox = document.getElementById('rvTags');
+    document.getElementById('rvGood').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-g]'); if (!b) return;
+      good = b.dataset.g === '1'; tags.clear();
+      document.querySelectorAll('#rvGood .btn').forEach((x) => x.classList.toggle('primary', x === b));
+      tagBox.innerHTML = (good ? GOOD_TAGS : BAD_TAGS).map((t) => `<span class="chip" data-t="${esc(t)}">${esc(t)}</span>`).join('');
+      document.getElementById('rvTextWrap').hidden = false;
+      document.getElementById('rvSubmit').disabled = false;
+    });
+    tagBox.addEventListener('click', (e) => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      tags.has(c.dataset.t) ? tags.delete(c.dataset.t) : tags.add(c.dataset.t);
+      c.classList.toggle('on');
+    });
+    const submit = async (body, btn) => {
+      btn.disabled = true;
+      try { renderAppt(await Backend.reviewAppointment(a.id, body)); closeModal(); toast(body.noshow ? '노쇼 신고를 접수했어요' : '후기를 남겼어요'); }
+      catch (err) { toast(err.message); btn.disabled = false; }
+    };
+    document.getElementById('rvSubmit').addEventListener('click', (e) => submit({ good, tags: [...tags], comment: document.getElementById('rvText').value }, e.target));
+    document.getElementById('rvNoshow')?.addEventListener('click', (e) => {
+      if (confirm(`${other}님이 약속 장소에 오지 않았나요?\n노쇼로 기록되면 상대 프로필의 노쇼 횟수가 올라가요.`)) submit({ noshow: true }, e.target);
+    });
+  }
+
+  // ------------------------------------------------------------ views: 구인 글 쓰기
+  function viewPostNew() {
+    setChrome({ tab: 'home' });
+    const me = state.me;
+    const d = { lift: 'bench', kind: 'flash', days: [] };
+    const dates = [...Array(14)].map((_, i) => kstDate(new Date(Date.now() + i * 864e5)));
+    // 기본값: 오늘 19:00 (지났으면 오늘 남은 가장 이른 시간, 오늘이 다 지났으면 내일 19:00)
+    const slot = firstSlotToday();
+    const defDate = slot ? dates[0] : dates[1];
+    const defTime = !slot || slot <= '19:00' ? '19:00' : slot;
+    $app.innerHTML = '';
+    $app.append(h(`
+      <a class="back-link small" href="#/">${ic('chevron-left', 16)}동네</a>
+      <h1>구인 글 쓰기</h1>
+      <form class="stack" id="postForm" novalidate>
+        <div class="field"><span class="field-label">종목</span>
+          <div class="chips" id="liftChips">${['bench', 'squat', 'deadlift', 'etc'].map((l) => `<span class="chip ${l === d.lift ? 'on' : ''}" data-v="${l}">${LIFT_FULL[l]}</span>`).join('')}</div></div>
+        <div class="grid2" id="weightRow">
+          <label class="field"><span>내 작업 중량</span><div class="suffix"><input type="number" inputmode="numeric" name="workKg" min="1" max="500" value="${me.bench ? plate(me.bench * 0.9) : ''}" placeholder="예) 100"><i>kg</i></div></label>
+          <label class="field"><span>상대 1RM 조건</span><div class="suffix"><input type="number" inputmode="numeric" name="min1rm" min="0" max="500" placeholder="선택"><i>kg 이상</i></div></label>
+        </div>
+        <div class="small muted" id="condHint"></div>
+        <label class="row small" id="reqVRow"><input type="checkbox" name="requireVerified"> 영상 인증된 1RM만 받기 <span class="muted">(고중량일수록 권장)</span></label>
+        <label class="field"><span>헬스장</span><input type="text" name="gymName" maxlength="50" value="${esc(me.gymName)}" placeholder="예) 바벨클럽 정자점" required></label>
+        <div class="field"><span class="field-label">구인 유형</span>
+          <div class="tabs" id="kindTabs"><button type="button" data-v="flash" class="on">번개 (이번 한 번)</button><button type="button" data-v="fixed">고정 메이트</button></div></div>
+        <div class="grid2">
+          <label class="field" id="dateField"><span>날짜</span><select name="date">${dates.map((x, i) => `<option value="${x}" ${x === defDate ? 'selected' : ''}>${i === 0 ? '오늘' : i === 1 ? '내일' : `${Number(x.slice(5, 7))}월 ${Number(x.slice(8))}일`}(${kstDow(x)})</option>`).join('')}</select></label>
+          <label class="field"><span>시간</span><select name="time">${TIMES.map((t) => `<option ${t === defTime ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        </div>
+        <div class="field" id="daysField" hidden><span class="field-label">요일 (여러 개 고를 수 있어요)</span>
+          <div class="chips" id="dayPick">${state.config.days.map((x) => `<span class="chip" data-v="${x}">${x}</span>`).join('')}</div></div>
+        <label class="row small"><input type="checkbox" name="sameGender" ${me.gender ? '' : 'disabled'}> 동성에게만 받기 ${me.gender ? '<span class="muted">(다른 성별에게는 이 글이 보이지 않아요)</span>' : '<span class="muted">(내 정보에서 성별을 입력하면 고를 수 있어요)</span>'}</label>
+        <label class="field"><span>한마디 (선택)</span><textarea name="memo" maxlength="200" placeholder="예) 마지막 두 세트만 봐주시면 돼요"></textarea></label>
+        <div class="small muted">열려 있는 구인 글은 3개까지 올릴 수 있어요. 번개 글은 약속 시간 1시간 뒤 자동으로 마감돼요.</div>
+        <button class="btn primary block" type="submit">구인 글 올리기</button>
+      </form>`));
+    const form = document.getElementById('postForm');
+    const hint = () => {
+      const w = Number(form.workKg.value); const c = Number(form.min1rm.value);
+      const rec = Math.round((w * 0.8) / 2.5) * 2.5;
+      document.getElementById('condHint').textContent = d.lift === 'etc' || !w ? '' : c && c < rec
+        ? `스팟을 맡기려면 작업 중량의 80%(${rec}kg) 이상을 권장해요.` : `권장 조건 ${rec}kg 이상 (작업 중량의 80%)`;
+    };
+    const sync = () => {
+      const etc = d.lift === 'etc';
+      document.getElementById('weightRow').hidden = etc;
+      document.getElementById('reqVRow').hidden = etc;
+      document.getElementById('dateField').hidden = d.kind !== 'flash';
+      document.getElementById('daysField').hidden = d.kind !== 'fixed';
+      if (!etc && !form.workKg.value && me[d.lift]) form.workKg.value = plate(me[d.lift] * 0.9);
+      hint();
+    };
+    document.getElementById('liftChips').addEventListener('click', (e) => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      if (d.lift !== c.dataset.v && me[c.dataset.v]) form.workKg.value = plate(me[c.dataset.v] * 0.9);
+      d.lift = c.dataset.v;
+      document.querySelectorAll('#liftChips .chip').forEach((x) => x.classList.toggle('on', x === c));
+      sync();
+    });
+    document.getElementById('kindTabs').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      d.kind = b.dataset.v;
+      document.querySelectorAll('#kindTabs button').forEach((x) => x.classList.toggle('on', x === b));
+      sync();
+    });
+    document.getElementById('dayPick').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (c) c.classList.toggle('on'); });
+    // 오늘을 고르면 이미 지난 시간은 고를 수 없게
+    const syncTimes = () => {
+      const first = form.date.value === dates[0] ? firstSlotToday() || '99:99' : '';
+      [...form.time.options].forEach((o) => { o.disabled = !!first && o.value < first; });
+      if (form.time.selectedOptions[0]?.disabled) form.time.value = [...form.time.options].find((o) => !o.disabled)?.value || form.time.value;
+    };
+    form.date.addEventListener('change', syncTimes);
+    syncTimes();
+    form.workKg.addEventListener('input', hint);
+    form.min1rm.addEventListener('input', hint);
+    sync();
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        await Backend.createPost({
+          lift: d.lift, kind: d.kind, workKg: d.lift === 'etc' ? '' : form.workKg.value, min1rm: d.lift === 'etc' ? '' : form.min1rm.value,
+          requireVerified: d.lift !== 'etc' && form.requireVerified.checked,
+          date: form.date.value, time: form.time.value, days: [...document.querySelectorAll('#dayPick .chip.on')].map((x) => x.dataset.v),
+          gymName: form.gymName.value, sameGender: form.sameGender.checked, memo: form.memo.value,
+        });
+        toast('구인 글을 올렸어요. 요청이 오면 쪽지함으로 알려드릴게요.');
+        sessionStorageSet('homeTab', 'posts');
+        location.hash = '#/';
+      } catch (err) {
+        if (!handleCodeError(err)) toast(err.message);
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ------------------------------------------------------------ views: 내 구인 글 · 받은 요청
+  async function viewMyPosts() {
+    setChrome({ tab: 'me' });
+    const posts = await Backend.myPosts();
+    $app.innerHTML = '';
+    $app.append(h(`
+      <a class="back-link small" href="#/me">${ic('chevron-left', 16)}내 정보</a>
+      <div class="row"><h1 style="flex:1">내 구인 글</h1><a class="btn sm" href="#/posts/new">${ic('plus', 16)}새 글</a></div>
+      ${posts.length ? posts.map((p) => {
+        const pending = p.requests.filter((r) => r.status === 'pending');
+        const done = p.requests.filter((r) => r.status !== 'pending');
+        return `
+        <section class="card stack my-post" data-id="${p.id}">
+          <div class="row"><b style="flex:1">${esc(postTitle(p))}</b><span class="status ${p.status === 'open' ? 'pending' : 'declined'}">${p.status === 'open' ? '모집중' : '마감'}</span></div>
+          <div class="small muted">${esc([postWhen(p), p.gymName, condText(p), p.kind === 'fixed' ? '고정' : '번개', p.sameGender ? '동성만' : ''].filter(Boolean).join(' · '))}</div>
+          ${pending.length ? pending.map((r) => `
+            <div class="req-item" data-note="${r.noteId}">
+              <div class="row">${avatar(r.other.photo)}<div style="flex:1;min-width:0"><b class="profile-link" data-uid="${r.other.id}" style="cursor:pointer">${esc(r.other.nickname)}</b>
+                <div class="small muted">${p.lift !== 'etc' ? `${LIFT[p.lift]} ${r.liftKg ?? '-'}kg ${r.liftVerifiedKg != null && r.liftVerifiedKg >= (r.liftKg ?? 0) ? '영상 인증' : '자기 신고'} · ` : ''}노쇼 ${r.trust.noshow}회</div></div></div>
+              <div class="note-body">${esc(r.content)}</div>
+              <div class="row"><button class="btn sm" data-act="decline">거절</button><span class="spacer"></span><button class="btn sm primary" data-act="accept">수락하고 채팅</button></div>
+            </div>`).join('') : '<div class="small muted">아직 받은 요청이 없어요.</div>'}
+          ${done.length ? `<div class="small muted">처리한 요청: ${done.map((r) => (r.status === 'accepted' && r.roomId ? `<a class="link" href="#/chat/${r.roomId}">${esc(r.other.nickname)} 채팅</a>` : `${esc(r.other.nickname)}(${r.status === 'accepted' ? '수락' : '거절'})`)).join(', ')}</div>` : ''}
+          <div class="row"><button class="btn sm" data-post="${p.status === 'open' ? 'close' : 'open'}">${p.status === 'open' ? '모집 마감하기' : '다시 모집하기'}</button>
+            <span class="spacer"></span><button class="btn sm danger" data-post="delete">글 삭제</button></div>
+        </section>`;
+      }).join('') : `<div class="empty"><span class="big">${ic('calendar', 32)}</span>아직 올린 구인 글이 없어요.<div style="margin-top:16px"><a class="btn sm" href="#/posts/new">구인 글 쓰기</a></div></div>`}`));
+    $app.querySelectorAll('.profile-link').forEach((el) => el.addEventListener('click', () => showProfile(el.dataset.uid).catch((e) => toast(e.message))));
+    $app.querySelectorAll('.req-item [data-act]').forEach((b) => b.addEventListener('click', async () => {
+      const id = Number(b.closest('[data-note]').dataset.note);
+      b.disabled = true;
+      try {
+        if (b.dataset.act === 'accept') { location.hash = `#/chat/${await Backend.acceptNote(id)}`; return; }
+        if (!confirm('이 요청을 거절할까요?\n상대에게는 \'마감됨\'으로 보여요.')) { b.disabled = false; return; }
+        await Backend.declineNote(id); toast('거절했어요'); viewMyPosts();
+      } catch (e) { toast(e.message); b.disabled = false; }
+    }));
+    $app.querySelectorAll('[data-post]').forEach((b) => b.addEventListener('click', async () => {
+      const id = Number(b.closest('[data-id]').dataset.id);
+      try {
+        if (b.dataset.post === 'delete') {
+          if (!confirm('이 글을 삭제할까요?\n답을 기다리는 요청은 \'마감됨\'으로 바뀌어요.')) return;
+          await Backend.deletePost(id); toast('글을 삭제했어요');
+        } else {
+          await Backend.setPostStatus(id, b.dataset.post === 'close' ? 'closed' : 'open');
+          toast(b.dataset.post === 'close' ? '모집을 마감했어요' : '다시 모집해요');
+        }
+        viewMyPosts();
+      } catch (e) { toast(e.message); }
+    }));
+  }
+
+  // ------------------------------------------------------------ views: 오늘 운동 인증
+  async function viewWorkout() {
+    setChrome({ tab: 'workout' });
+    const [w, me0] = await Promise.all([Backend.myWorkout(), Backend.me()]);
+    state.me = me0;
+    const tab = sessionStorageGet('recTab') || 'bench';
+    const PARTS = ['가슴', '등', '하체', '어깨·팔', '전신'];
+    const editing = !w.today || sessionStorageGet('workoutEdit') === '1';
+    const weekCount = w.week.filter(Boolean).length;
+    const bar = (n) => `<div class="progress"><i style="width:${Math.min(100, (n / w.goal) * 100)}%"></i></div>`;
+    const b = w.best[tab];
+    const est = b.thisMonth ? epley(b.thisMonth.w, b.thisMonth.r) : null;
+    const mine = state.me[tab];
+    $app.innerHTML = '';
+    $app.append(h(`
+      <div class="row"><h1 style="flex:1">오늘 인증</h1><span class="small"><b>${w.streak}일</b> 연속 출석</span></div>
+      ${w.today && !editing ? `
+        <section class="card stack">
+          <div class="workout-photo"><img id="todayPhoto" alt="오늘 올린 운동 사진"></div>
+          <div class="row"><span style="flex:1"><b>${esc(w.today.part)}</b>${w.today.lift ? ` · ${LIFT[w.today.lift]} ${Number(w.today.weightKg)}kg × ${w.today.reps}` : ''}</span>
+            <button class="btn sm" id="editToday">다시 올리기</button></div>
+          <div class="small muted">오늘 인증을 마쳤어요. 채팅 중인 메이트에게 이번 주 인증 횟수가 보여요.</div>
+        </section>` : `
+        <form class="card stack" id="workoutForm" novalidate>
+          <label class="drop" id="dropZone">${ic('camera', 24)}<b>운동 사진 올리기</b><span class="small muted">헬스장에서 찍은 사진 한 장 (5MB 이하)</span>
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" hidden></label>
+          <div class="field"><span class="field-label">오늘 한 부위</span>
+            <div class="chips" id="partChips">${PARTS.map((p, i) => `<span class="chip ${(w.today?.part || '가슴') === p ? 'on' : ''}" data-v="${p}">${p}</span>`).join('')}</div></div>
+          <div class="field"><span class="field-label">오늘의 최고 세트 (선택)</span>
+            <div class="grid3">
+              <select name="lift"><option value="">종목</option>${LIFTS3.map((l) => `<option value="${l}">${LIFT[l]}</option>`).join('')}</select>
+              <div class="suffix"><input type="number" inputmode="decimal" step="0.5" name="weightKg" placeholder="중량"><i>kg</i></div>
+              <div class="suffix"><input type="number" inputmode="numeric" name="reps" placeholder="횟수"><i>회</i></div>
+            </div>
+            <div class="small muted" id="estOut" style="margin-top:8px">중량과 횟수를 넣으면 추정 1RM을 계산해요.</div></div>
+          <button class="btn primary block" type="submit">오늘 인증 올리기</button>
+          ${w.today ? '<button class="btn block" type="button" id="cancelEdit">취소</button>' : ''}
+        </form>`}
+
+      <section class="card stack">
+        <div class="row"><h2 style="flex:1">이번 주</h2><span class="small muted">목표 주 ${w.goal}회</span></div>
+        <div class="week-dots">${['월', '화', '수', '목', '금', '토', '일'].map((d, i) => `<div><span>${d}</span><i class="${w.week[i] ? 'on' : ''} ${i === w.todayIndex && !w.week[i] ? 'today' : ''}">${w.week[i] ? ic('check', 14) : ''}</i></div>`).join('')}</div>
+        <div class="row small"><span style="flex:1">나</span><b>${weekCount} / ${w.goal}회</b></div>${bar(weekCount)}
+        ${w.mates.map((m) => `
+          <div class="row small mate-line"><span style="flex:1" class="ellipsis">${esc(m.nickname)}</span><b>${m.weekCount} / ${w.goal}회</b>
+            <button class="btn sm" data-cheer="${m.roomId}" ${m.cheeredToday ? 'disabled' : ''}>${m.cheeredToday ? '응원함' : '응원하기'}</button></div>${bar(m.weekCount)}`).join('')}
+        ${w.mates.length ? '' : '<div class="small muted">채팅 중인 메이트가 생기면 서로의 이번 주 인증 횟수가 보여요.</div>'}
+      </section>
+
+      <section class="card stack">
+        <div class="row"><h2 style="flex:1">최고 기록</h2><div class="chips" id="recTabs">${LIFTS3.map((l) => `<span class="chip ${l === tab ? 'on' : ''}" data-v="${l}">${LIFT[l]}</span>`).join('')}</div></div>
+        <dl class="kv rec">
+          <dt>이번 달</dt><dd>${b.thisMonth ? `${Number(b.thisMonth.w)}kg × ${b.thisMonth.r}` : '-'}</dd>
+          <dt>지난달</dt><dd>${b.lastMonth ? `${Number(b.lastMonth.w)}kg × ${b.lastMonth.r}` : '-'}</dd>
+          <dt>추정 1RM</dt><dd>${est != null ? `${est}kg` : '-'}</dd>
+          <dt>등록된 1RM</dt><dd>${mine != null ? `${mine}kg · ${liftStatus(state.me, tab)}` : '-'}</dd>
+        </dl>
+        ${est != null && est > (mine ?? 0) ? `<a class="banner" href="#/lifts/${tab}">${ic('video', 16)}<span>추정 1RM이 등록된 기록보다 높아요. 영상 인증으로 갱신해 보세요.</span></a>` : ''}
+      </section>
+      <div class="card menu-list"><a href="#/lifts">1RM 영상 인증 <span class="small muted" style="margin-left:auto;margin-right:8px">${LIFTS3.filter((l) => state.me.verified?.[l] != null).length}/3 완료</span></a></div>`));
+
+    if (w.today && !editing) {
+      Backend.workoutPhotoUrl(w.today.image).then((url) => { const img = document.getElementById('todayPhoto'); if (img) img.src = url; }).catch(() => {});
+      document.getElementById('editToday').addEventListener('click', () => { sessionStorageSet('workoutEdit', '1'); viewWorkout().catch((e) => toast(e.message)); });
+    }
+    document.getElementById('cancelEdit')?.addEventListener('click', () => { sessionStorageSet('workoutEdit', ''); viewWorkout().catch((e) => toast(e.message)); });
+    document.getElementById('recTabs').addEventListener('click', (e) => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      sessionStorageSet('recTab', c.dataset.v); viewWorkout().catch((err) => toast(err.message));
+    });
+    $app.querySelectorAll('[data-cheer]').forEach((btn) => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try { await Backend.sendCheer(Number(btn.dataset.cheer)); btn.textContent = '응원함'; toast('응원을 보냈어요. 채팅방에 표시돼요'); }
+      catch (e) { toast(e.message); btn.disabled = false; }
+    }));
+    const form = document.getElementById('workoutForm');
+    if (!form) return;
+    form.photo.addEventListener('change', () => {
+      const f = form.photo.files[0]; if (!f) return;
+      const zone = document.getElementById('dropZone');
+      zone.classList.add('has-photo');
+      zone.querySelector('b').textContent = '사진 바꾸기';
+      zone.querySelector('.workout-preview')?.remove();
+      zone.prepend(h(`<img class="workout-preview" alt="올릴 운동 사진" src="${URL.createObjectURL(f)}">`));
+    });
+    document.getElementById('partChips').addEventListener('click', (e) => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      document.querySelectorAll('#partChips .chip').forEach((x) => x.classList.toggle('on', x === c));
+    });
+    const showEst = () => {
+      const kg = Number(form.weightKg.value); const r = Number(form.reps.value); const l = form.lift.value;
+      document.getElementById('estOut').textContent = !kg || !r ? '중량과 횟수를 넣으면 추정 1RM을 계산해요.'
+        : r > 12 ? '12회 이하 세트로 넣어야 추정치가 정확해요.'
+        : `추정 1RM ${epley(kg, r)}kg${l && state.me[l] != null ? ` · 등록된 ${LIFT[l]} ${state.me[l]}kg` : ''}`;
+    };
+    ['input', 'change'].forEach((ev) => form.addEventListener(ev, (e) => { if (['weightKg', 'reps', 'lift'].includes(e.target.name)) showEst(); }));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = form.photo.files[0];
+      if (!f) return toast('운동 사진을 올려 주세요.');
+      const l = form.lift.value; const kg = Number(form.weightKg.value); const reps = Number(form.reps.value);
+      if (!l && (form.weightKg.value || form.reps.value)) return toast('최고 세트의 종목을 골라 주세요.');
+      if (l && (!kg || !reps)) return toast('최고 세트의 중량과 횟수를 함께 입력해 주세요.');
+      if (l && (kg < 1 || kg > 500 || kg * 2 !== Math.trunc(kg * 2))) return toast('중량은 1~500kg, 0.5kg 단위로 입력해 주세요.');
+      if (l && (reps < 1 || reps > 30 || !Number.isInteger(reps))) return toast('횟수는 1~30회로 입력해 주세요.');
+      const btn = form.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = '올리는 중...';
+      try {
+        const path = await Backend.uploadWorkoutPhoto(state.me.id, f);
+        await Backend.logWorkout({ part: document.querySelector('#partChips .chip.on').dataset.v, lift: form.lift.value,
+          weightKg: form.weightKg.value, reps: form.reps.value, photo: path });
+        sessionStorageSet('workoutEdit', '');
+        toast('오늘 인증을 올렸어요');
+        viewWorkout().catch((err) => toast(err.message));
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = '오늘 인증 올리기'; }
+    });
+  }
+
+  // ------------------------------------------------------------ views: 1RM 영상 인증
+  let codeTimer;
+  async function viewLifts(lift) {
+    setChrome({ tab: 'workout' });
+    clearInterval(codeTimer);
+    const [list, me0] = await Promise.all([Backend.myLifts(), Backend.me()]);
+    state.me = me0;
+    const me = state.me;
+    const sel = lift || sessionStorageGet('liftSel') || 'deadlift';
+    sessionStorageSet('liftSel', sel);
+    const v = list[sel];
+    const tileState = (l) => {
+      const x = list[l];
+      if (x?.status === 'pending') return ['검토 중', `${x.weightKg}`];
+      if (me.verified?.[l] != null) return ['인증 완료', `${me.verified[l]}`];
+      return ['미인증', `${me[l] ?? '-'}`];
+    };
+    const codeValid = v?.status === 'code' && new Date(v.codeExpiresAt) > new Date();
+    const CRITERIA = {
+      bench: '바가 가슴에 닿은 뒤 튕기지 않고 팔을 끝까지 펴요. 엉덩이가 벤치에서 떨어지면 안 돼요.',
+      squat: '고관절이 무릎 윗면보다 낮게 내려간 뒤 완전히 일어서요. 측면 영상이 필요해요.',
+      deadlift: '무릎과 고관절을 완전히 펴서 락아웃해요. 바닥에서 튕겨 올리는 반복은 인정하지 않아요.',
+    };
+    let body;
+    if (v?.status === 'pending') {
+      body = `<div class="banner">${LIFT_FULL[sel]} ${v.weightKg}kg 영상을 검토하고 있어요. 결과가 나오면 이 화면과 프로필에 반영돼요.</div>`;
+    } else {
+      body = `
+        ${v?.status === 'rejected' ? `<div class="banner">${ic('circle-alert', 16)}<span>지난 신청이 반려됐어요: ${esc(v.rejectReason || '')}</span></div>` : ''}
+        ${me.verified?.[sel] != null ? `<div class="small muted">${LIFT_FULL[sel]} ${me.verified[sel]}kg 인증 완료. 더 무거운 기록으로 다시 신청할 수 있어요.</div>` : ''}
+        ${codeValid ? `
+          <div class="code-box"><div class="small"><b>영상 속에 이 코드를 보여 주세요</b><br><span class="muted">종이에 적거나 휴대폰 화면으로</span><br><span class="muted" id="codeLeft"></span></div>
+            <div class="code">${esc(v.code)}</div></div>
+          <form class="stack" id="liftForm" novalidate>
+            <label class="field"><span>${LIFT_FULL[sel]} 중량</span><div class="suffix"><input type="number" inputmode="numeric" name="weight" min="20" max="500" value="${Math.max(me[sel] ?? 0, me.verified?.[sel] ?? 0) || ''}"><i>kg</i></div></label>
+            <div class="field"><span class="field-label">촬영 가이드</span>
+              <ol class="guide small"><li>원판을 끼우는 장면부터 찍어 중량이 보이게</li><li>인증 코드가 화면 안에 보이게</li><li>편집 없이 한 번에, 측면에서 전신이 나오게</li><li>${esc(CRITERIA[sel])}</li></ol>
+              <div class="small muted">스트랩·벨트는 괜찮아요. 슈트·스미스 머신은 인정하지 않아요.</div></div>
+            <label class="drop">${ic('video', 24)}<b id="videoName">영상 촬영 또는 업로드</b><span class="small muted">MP4 · MOV · WEBM, 50MB 이하, 1분 이내 권장</span>
+              <input type="file" name="video" accept="video/mp4,video/quicktime,video/webm" hidden></label>
+            <button class="btn primary block" type="submit">인증 신청하기</button>
+            <button class="link small muted" type="button" id="newCode" style="align-self:center">코드 새로 받기</button>
+          </form>` : `
+          <div class="small muted">인증 코드를 받은 뒤 24시간 안에 코드가 보이도록 영상을 찍어 올려 주세요. 운영팀이 확인하면 프로필에 '영상 인증'이 표시돼요.</div>
+          <button class="btn primary block" id="issueCode">${LIFT_FULL[sel]} 인증 코드 받기</button>`}`;
+    }
+    $app.innerHTML = '';
+    $app.append(h(`
+      <a class="back-link small" href="#/workout">${ic('chevron-left', 16)}오늘 인증</a>
+      <h1>1RM 영상 인증</h1>
+      <div class="lift-tiles">${LIFTS3.map((l) => { const [st, kg] = tileState(l); return `<button type="button" class="${l === sel ? 'on' : ''}" data-l="${l}"><span>${LIFT[l]}</span><b>${kg}<small>kg</small></b><span>${st}</span></button>`; }).join('')}</div>
+      <div class="stack" style="margin-top:16px">${body}</div>`));
+    $app.querySelectorAll('.lift-tiles button').forEach((b) => b.addEventListener('click', () => { location.hash = `#/lifts/${b.dataset.l}`; }));
+    const issue = async (btn) => {
+      btn.disabled = true;
+      try { await Backend.issueLiftCode(sel); toast('인증 코드를 받았어요. 24시간 안에 영상을 올려 주세요'); viewLifts(sel); }
+      catch (e) { toast(e.message); btn.disabled = false; }
+    };
+    document.getElementById('issueCode')?.addEventListener('click', (e) => issue(e.target));
+    document.getElementById('newCode')?.addEventListener('click', (e) => { if (confirm('새 코드를 받으면 지금 코드로 찍은 영상은 쓸 수 없어요. 새로 받을까요?')) issue(e.target); });
+    if (codeValid) {
+      const tick = () => {
+        const el = document.getElementById('codeLeft'); if (!el) { clearInterval(codeTimer); return; }
+        const left = new Date(v.codeExpiresAt) - Date.now();
+        if (left <= 0) { clearInterval(codeTimer); viewLifts(sel).catch((e) => toast(e.message)); return; }
+        el.textContent = `${Math.floor(left / 3600e3)}시간 ${Math.floor((left % 3600e3) / 60e3)}분 남음`;
+      };
+      tick(); codeTimer = setInterval(tick, 30000);
+      const form = document.getElementById('liftForm');
+      form.video.addEventListener('change', () => { const f = form.video.files[0]; if (f) document.getElementById('videoName').textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)}MB`; });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const f = form.video.files[0];
+        if (!f) return toast('인증 영상을 골라 주세요.');
+        const kg = Number(form.weight.value);
+        if (!(kg >= 20 && kg <= 500)) return toast('중량을 20~500kg 사이로 입력해 주세요.');
+        const btn = form.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = '영상 올리는 중...';
+        try {
+          const path = await Backend.uploadLiftVideo(me.id, f);
+          await Backend.submitLiftVideo(v.id, kg, path);
+          toast('인증을 신청했어요. 검토가 끝나면 프로필에 반영돼요');
+          viewLifts(sel);
+        } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = '인증 신청하기'; }
+      });
+    }
+  }
+
   // ------------------------------------------------------------ views: 내 정보 / 프로필 편집
-  function viewMe() {
+  async function viewMe() {
+    state.me = await Backend.me();
     setChrome({ tab: 'me' });
     const me = state.me; const c = state.config; const p = me.prefs;
     const opt = (list, cur, labels = {}, none = '선택 안 함') => `<option value="">${none}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(labels[v] || v)}</option>`).join('');
@@ -916,6 +1665,18 @@
           <div class="small muted">인증된 동네</div>
           <div><b>${me.location ? esc(me.location.region) : '미인증'}</b> ${me.location && !me.location.verified ? '<span class="small" style="color:var(--danger)">(만료)</span>' : ''}</div>
         </div><a class="btn sm" href="#/verify">${me.location ? '재인증' : '인증하기'}</a></div>
+      </div>
+      <div class="card stack" style="margin-bottom:14px">
+        <div class="small muted">신뢰 지표 · 다른 회원에게 보여요</div>
+        <div class="trust-stats">
+          <div><b>${me.trust?.together ?? 0}</b><span>함께한 운동</span></div><div><b>${me.trust?.noshow ?? 0}</b><span>노쇼</span></div>
+          <div><b>${me.trust?.lateCancel ?? 0}</b><span>늦은 취소</span></div><div><b>${me.trust?.reviewCount ?? 0}</b><span>받은 후기</span></div>
+        </div>
+        <div class="small muted">늦은 취소는 확정된 약속을 2시간 이내에 취소한 횟수예요.</div>
+      </div>
+      <div class="card menu-list" style="margin-bottom:14px">
+        <a href="#/posts/mine">내 구인 글 · 받은 요청</a>
+        <a href="#/lifts">1RM 영상 인증 <span class="small muted" style="margin-left:auto;margin-right:8px">${LIFTS3.filter((l) => me.verified?.[l] != null).length}/3 완료</span></a>
       </div>
       <form class="stack" id="profileForm" novalidate>
         <section class="card stack">
@@ -943,6 +1704,9 @@
             <label class="field"><span>데드리프트</span><div class="suffix">${num('deadlift', me.deadlift, 0, c.max1rm, '0')}<i>kg</i></div></label>
           </div>
           <div class="total-line">3대 합계 <b id="totalOut">-</b></div>
+          <div class="small muted">${LIFTS3.some((l) => me.verified?.[l] != null)
+            ? `영상 인증: ${LIFTS3.filter((l) => me.verified?.[l] != null).map((l) => `${LIFT[l]} ${me.verified[l]}kg`).join(' · ')}. 인증값보다 높게 고치면 그 종목은 '자기 신고'로 보여요.`
+            : '직접 입력한 기록은 \'자기 신고\'로 보여요. <a class="link" href="#/lifts">영상 인증</a>을 받으면 \'영상 인증\'이 붙어요.'}</div>
         </section>
 
         <section class="card stack">
@@ -950,7 +1714,7 @@
           <label class="field"><span>다니는 헬스장</span><input type="text" name="gymName" value="${esc(me.gymName)}" maxlength="50" placeholder="예) 역삼 OO피트니스"></label>
           <div class="field"><span class="field-label">자주 가는 요일</span>${chips('dayChips', c.days, me.workoutDays)}</div>
           <div class="field"><span class="field-label">자주 가는 시간대</span>${chips('timeChips', c.times, me.workoutTimes)}</div>
-          <label class="field"><span>자기소개</span><textarea name="bio" maxlength="500" placeholder="예) 주 4회 분할 루틴 하고 있어요. 하체날 서로 스팟 봐주실 분 구합니다!">${esc(me.bio)}</textarea></label>
+          <label class="field"><span>자기소개</span><textarea name="bio" maxlength="500" placeholder="예) 주 4회 분할 루틴 하고 있어요. 하체날 서로 스팟 봐주실 분을 찾고 있어요.">${esc(me.bio)}</textarea></label>
         </section>
 
         <section class="card stack">
@@ -970,7 +1734,7 @@
       </form>
       <div class="card menu-list" style="margin-top:14px">
         <div class="small muted menu-caption">${esc({ kakao: '카카오 계정으로 로그인됨', google: 'Google 계정으로 로그인됨' }[me.provider] || me.email || '')}</div>
-        ${me.isAdmin ? '<a href="#/admin">신고 관리 (관리자)<b class="badge inline" id="badgeReports"></b></a>' : ''}
+        ${me.isAdmin ? '<a href="#/admin">신고 · 영상 인증 관리 (관리자)<b class="badge inline" id="badgeReports"></b></a>' : ''}
         <a href="#/blocks">차단 목록</a>
         ${me.provider === 'email' ? '<button type="button" id="pwBtn">비밀번호 변경</button>' : ''}
         <button type="button" data-export>내 정보 내려받기</button>
@@ -1026,7 +1790,7 @@
     document.getElementById('logoutBtn').addEventListener('click', logout);
     document.getElementById('deleteBtn').addEventListener('click', openDeleteAccount);
     document.getElementById('pwBtn')?.addEventListener('click', openChangePassword);
-    if (me.isAdmin) Backend.badges().then((b) => { document.getElementById('badgeReports').textContent = b.reports || ''; }).catch(() => {});
+    if (me.isAdmin) Backend.badges().then((b) => { document.getElementById('badgeReports').textContent = (b.reports || 0) + (b.lifts || 0) || ''; }).catch(() => {});
   }
 
   function openChangePassword() {
