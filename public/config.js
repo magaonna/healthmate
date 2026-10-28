@@ -11,9 +11,10 @@ window.GYMJJAK_CONFIG = {
   kakaoJsKey: '',
 
   // 로그인 방법. Supabase 대시보드 → Authentication → Sign In / Providers 에서 켠 것만 넣으세요: 'kakao', 'google'
-  authProviders: ['kakao'],
+  // 10/28: 카카오 로그인 오류로 잠시 끔. 고친 뒤 ['kakao'] 로 되돌린다.
+  authProviders: [],
   // 이메일 회원가입/로그인 화면 사용 여부 (false = 카카오 로그인만)
-  emailLogin: false,
+  emailLogin: true,
 
   // 운영 정보 – 이용약관 · 개인정보처리방침 · 정지 안내에 표시 (출시 전 꼭 채우세요)
   service: {
