@@ -772,6 +772,37 @@ begin
 end $$;
 
 -- 동네 인증. 동네 이름은 브라우저에서 지도 API 로 변환해 전달
+-- ---------------------------------------------------------------------
+-- 조회 · 인증 횟수 제한 (Q2) — 자동 수집 · 위치 역추적 방지
+-- ---------------------------------------------------------------------
+create table if not exists public.api_hits (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  action  text not null,
+  bucket  timestamptz not null,  -- 1시간 단위
+  hits    int not null default 0,
+  primary key (user_id, action, bucket)
+);
+alter table public.api_hits enable row level security;
+revoke all on public.api_hits from public, anon, authenticated;
+
+-- 한 시간에 per_hour 번, 하루에 per_day 번(NULL = 제한 없음)까지만 허용
+create or replace function public._rate_limit(uid uuid, act text, per_hour int, per_day int default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  b timestamptz := date_trunc('hour', now());
+  n int;
+begin
+  insert into public.api_hits (user_id, action, bucket, hits) values (uid, act, b, 1)
+  on conflict (user_id, action, bucket) do update set hits = public.api_hits.hits + 1
+  returning hits into n;
+  if n > per_hour then raise exception '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.'; end if;
+  if per_day is not null and (select coalesce(sum(hits), 0) from public.api_hits
+                              where user_id = uid and action = act and bucket > now() - interval '24 hours') > per_day then
+    raise exception '오늘은 더 이상 할 수 없어요. 내일 다시 시도해 주세요.';
+  end if;
+  if random() < 0.01 then delete from public.api_hits where bucket < now() - interval '2 days'; end if;
+end $$;
+
 create or replace function public.verify_location(p_lat float8, p_lng float8, p_accuracy float8, p_region text,
                                                   p_district text default '', p_manual boolean default false,
                                                   p_provided_to text default null) returns jsonb
@@ -780,6 +811,7 @@ declare
   uid uuid := public._require_active();
   reg text := left(btrim(coalesce(p_region, '')), 40);
 begin
+  perform public._rate_limit(uid, 'verify', 6, 20);  -- 동네 인증: 시간당 6번, 하루 20번 (위치를 바꿔 가며 거리 재기 방지)
   if p_lat is null or p_lng is null or abs(p_lat) > 90 or abs(p_lng) > 180 then raise exception '위치 정보가 올바르지 않습니다.'; end if;
   if coalesce(p_manual, false) and not (public._settings()).allow_manual_location then
     raise exception '수동 위치 지정은 허용되지 않습니다. GPS로 인증해 주세요.';
@@ -812,6 +844,7 @@ declare
   vdays int := (public._settings()).verify_valid_days;
   users jsonb;
 begin
+  perform public._rate_limit(uid, 'nearby', 120);
   select coalesce(jsonb_agg(j order by fk, nick), '[]'::jsonb) into users from (
     select public._profile_json(p, l, me.lat, me.lng) as j, public._fuzzy_km(me.lat, me.lng, l.lat, l.lng, p.id) as fk, p.nickname as nick
     from public.profiles p
@@ -835,12 +868,20 @@ declare
   l public.locations;
   room_id bigint;
 begin
+  perform public._rate_limit(uid, 'profile', 200);
   select * into p from public.profiles where id = p_user;
   if not found or (not p.is_public and p.id <> uid) or not public._is_active(p.id) or public._is_blocked(uid, p.id) then
     raise exception '프로필을 찾을 수 없습니다.';
   end if;
   select * into l from public.locations where user_id = p.id;
   select id into room_id from public.rooms where user_a = least(uid, p.id) and user_b = greatest(uid, p.id);
+  -- 반경 밖 회원은 ID를 알아도 볼 수 없음 (채팅방이 있거나 쪽지를 주고받은 사이는 예외)
+  if p.id <> uid and room_id is null
+     and not exists (select 1 from public.notes n where (n.from_id = uid and n.to_id = p.id) or (n.from_id = p.id and n.to_id = uid))
+     and (l.user_id is null or l.verified_at <= now() - make_interval(days => (public._settings()).verify_valid_days)
+          or public._fuzzy_km(me.lat, me.lng, l.lat, l.lng, p.id) > 10) then
+    raise exception '프로필을 찾을 수 없습니다.';
+  end if;
   return public._profile_json(p, l, me.lat, me.lng) || jsonb_build_object(
     'roomId', room_id,
     'pendingNote', exists (select 1 from public.notes where from_id = uid and to_id = p.id and status = 'pending'),
@@ -1264,6 +1305,7 @@ declare
   vdays int := (public._settings()).verify_valid_days;
   res jsonb;
 begin
+  perform public._rate_limit(uid, 'posts', 120);
   select coalesce(jsonb_agg(j order by dist, meet, pid), '[]'::jsonb) into res from (
     select public._post_json(x, uid) || jsonb_build_object('author', jsonb_build_object(
              'id', p.id, 'nickname', p.nickname, 'photo', p.photo_path, 'gender', p.gender, 'age', p.age,
