@@ -1744,12 +1744,37 @@ end $$;
 -- 프로필 사진 저장소 (공개 읽기, 본인 폴더 {user id}/ 에만 쓰기)
 -- ---------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('avatars', 'avatars', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+values ('avatars', 'avatars', false, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
 on conflict (id) do nothing;
 
 drop policy if exists "avatars_own_select" on storage.objects;
 create policy "avatars_own_select" on storage.objects for select to authenticated
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+-- 프로필 사진(avatars)은 비공개 저장소: 본인 · 공개 프로필(차단 아님) · 대화 상대의 "현재" 사진만 열람 가능 (Q8)
+create or replace function public._avatar_visible(p_name text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  viewer uuid := auth.uid();
+  owner uuid;
+begin
+  if viewer is null then return false; end if;
+  begin
+    owner := split_part(p_name, '/', 1)::uuid;
+  exception when others then
+    return false;
+  end;
+  if owner = viewer then return true; end if;
+  return exists (
+    select 1 from public.profiles p
+    where p.id = owner and p.photo_path = p_name and public._is_active(p.id) and not public._is_blocked(viewer, p.id)
+      and (p.is_public or exists (select 1 from public.rooms r where r.user_a = least(viewer, p.id) and r.user_b = greatest(viewer, p.id))));
+end $$;
+grant execute on function public._avatar_visible(text) to authenticated;
+
+update storage.buckets set public = false where id = 'avatars';
+drop policy if exists "avatars_view" on storage.objects;
+create policy "avatars_view" on storage.objects for select to authenticated
+  using (bucket_id = 'avatars' and public._avatar_visible(name));
 drop policy if exists "avatars_own_insert" on storage.objects;
 create policy "avatars_own_insert" on storage.objects for insert to authenticated
   with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
@@ -1855,3 +1880,6 @@ grant execute on function
   public.my_workout(),
   public.send_cheer(bigint)
 to authenticated;
+
+-- 저장소 정책(avatars_view)에서 부르는 함수: 정책은 요청한 사람 권한으로 실행되므로 실행 권한이 필요 (Q8)
+grant execute on function public._avatar_visible(text) to authenticated;

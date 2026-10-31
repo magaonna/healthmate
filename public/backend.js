@@ -42,16 +42,27 @@
     return err;
   }
 
-  // RPC 결과의 사진 경로(photo) → 공개 URL (원래 경로는 photoPath 로 보관)
-  const photoUrl = (path) => sb.storage.from('avatars').getPublicUrl(path).data.publicUrl;
-  function fixPhotos(v) {
-    if (Array.isArray(v)) v.forEach(fixPhotos);
-    else if (v && typeof v === 'object') {
-      for (const [k, x] of Object.entries(v)) {
-        if (k === 'photo' && typeof x === 'string' && x && !/^(https?:|blob:)/.test(x)) { v.photoPath = x; v.photo = photoUrl(x); }
-        else if (x && typeof x === 'object') fixPhotos(x);
+  // RPC 결과의 사진 경로(photo) → 서명된 임시 주소 (원래 경로는 photoPath 로 보관, Q8)
+  // 프로필 사진 저장소는 비공개라, 볼 수 있는 사람(본인 · 공개 프로필 · 대화 상대)만 1시간짜리 주소를 받는다.
+  const signed = new Map(); // path → { url, exp }
+  const photoUrl = (path) => { const c = signed.get(path); return c && c.exp > Date.now() ? c.url : ''; };
+  async function fixPhotos(v) {
+    const holders = [];
+    (function walk(x) {
+      if (Array.isArray(x)) x.forEach(walk);
+      else if (x && typeof x === 'object') {
+        for (const [k, y] of Object.entries(x)) {
+          if (k === 'photo' && typeof y === 'string' && y && !/^(https?:|blob:)/.test(y)) holders.push(x);
+          else if (y && typeof y === 'object') walk(y);
+        }
       }
+    })(v);
+    const need = [...new Set(holders.map((h) => h.photo).filter((p) => !photoUrl(p)))];
+    if (need.length) {
+      const { data } = await sb.storage.from('avatars').createSignedUrls(need, 3600).catch(() => ({ data: null }));
+      (data || []).forEach((d) => { if (d && d.signedUrl && !d.error) signed.set(d.path, { url: d.signedUrl, exp: Date.now() + 55 * 60e3 }); });
     }
+    holders.forEach((h) => { h.photoPath = h.photo; h.photo = photoUrl(h.photo) || null; });
     return v;
   }
 
